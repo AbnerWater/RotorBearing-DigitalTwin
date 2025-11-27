@@ -1,0 +1,83 @@
+<div class="relative w-full h-screen">
+  <canvas #rendererCanvas id="renderer-canvas"></canvas>
+
+  <!-- Left Side: Color Legend -->
+  <div class="absolute left-4 top-1/2 -translate-y-1/2 text-gray-800 text-sm p-4 bg-white/70 backdrop-blur-sm shadow-lg rounded-lg flex flex-col items-center">
+    <div class="flex items-center w-full">
+        <div class="w-6 h-6 bg-red-500 rounded-t-md"></div>
+        <span class="ml-2 font-semibold">{{ legendSteps()[0]?.value }}</span>
+    </div>
+    
+    @for (step of legendSteps().slice(1, -1); track step) {
+      <div class="flex items-center w-full">
+        <div class="w-6 h-6" [style.background-color]="step.color"></div>
+        <span class="ml-2">{{ step.value }}</span>
+      </div>
+    }
+
+    <div class="flex items-center w-full">
+        <div class="w-6 h-6 bg-blue-500 rounded-b-md"></div>
+        <span class="ml-2 font-semibold">{{ legendSteps()[legendSteps().length - 1]?.value }}</span>
+    </div>
+
+    <span class="font-bold mt-2 pt-2 border-t border-gray-300 w-full text-center">{{ legendData().unit }}</span>
+  </div>
+
+  <!-- Top Right: Data Panel -->
+  <div class="absolute top-4 right-4 text-gray-800 p-4 bg-white/70 backdrop-blur-sm shadow-xl rounded-lg w-80 text-sm">
+    <h2 class="text-xl font-bold text-gray-900 border-b pb-2 mb-3">System Status</h2>
+    
+    <!-- Visualization Control -->
+    <div class="mb-4">
+      <label for="display-type" class="block font-semibold mb-1 text-gray-700">Bearing Visualization</label>
+      <select id="display-type" class="w-full p-2 rounded-md bg-white/50 border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:outline-none" (change)="onDisplayTypeChange($event)">
+        <option value="pressure" selected>Oil Film Pressure</option>
+        <option value="thickness">Oil Film Thickness</option>
+        <option value="temperature">Oil Film Temperature</option>
+      </select>
+    </div>
+
+    <!-- Rotor Speed -->
+    <div class="flex justify-between items-center mb-2">
+      <span class="font-semibold text-gray-700">Rotor Speed:</span>
+      <span class="font-mono text-base font-bold text-blue-600">{{ rotationSpeed().toFixed(0) }} RPM</span>
+    </div>
+
+    <!-- Bearing Data Table -->
+    <div class="grid grid-cols-3 gap-x-2 text-center border-t pt-3 mt-3">
+        <div></div>
+        <div class="font-bold">Bearing 1</div>
+        <div class="font-bold">Bearing 2</div>
+
+        <div class="font-semibold text-left">Max Pressure</div>
+        <div>{{ panelData().maxPressure1.toFixed(2) }}</div>
+        <div>{{ panelData().maxPressure2.toFixed(2) }}</div>
+        
+        <div class="font-semibold text-left">Min Thickness</div>
+        <div>{{ panelData().minThickness1.toFixed(1) }}</div>
+        <div>{{ panelData().minThickness2.toFixed(1) }}</div>
+
+        <div class="font-semibold text-left">Temp A</div>
+        <div>{{ panelData().temp1A.toFixed(1) }}</div>
+        <div>{{ panelData().temp2A.toFixed(1) }}</div>
+
+        <div class="font-semibold text-left">Temp B</div>
+        <div>{{ panelData().temp1B.toFixed(1) }}</div>
+        <div>{{ panelData().temp2B.toFixed(1) }}</div>
+    </div>
+  </div>
+
+  <!-- Bottom: Speed Control -->
+   <div class="absolute bottom-4 left-1/2 -translate-x-1/2 text-gray-800 p-3 bg-white/70 backdrop-blur-sm shadow-lg rounded-lg flex items-center space-x-4">
+    <label for="speed-slider" class="font-semibold">Rotation Speed</label>
+    <input 
+      id="speed-slider" 
+      type="range" 
+      min="0" 
+      max="100" 
+      [value]="rotationSpeed() / 40"
+      (input)="onSpeedChange($event)"
+      class="w-64">
+  </div>
+
+</div>

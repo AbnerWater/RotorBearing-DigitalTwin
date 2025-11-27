@@ -1,0 +1,5 @@
+{
+  "name": "3D Rotor-Bearing System Visualization",
+  "description": "An interactive 3D visualization of a Nelson rotor system with journal bearings. This application showcases the oil film pressure distribution on the bearings, rendered as a dynamic 3D surface plot using Three.js.",
+  "requestFramePermissions": []
+}
