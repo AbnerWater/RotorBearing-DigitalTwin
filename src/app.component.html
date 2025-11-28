@@ -40,6 +40,52 @@
         <div>{{ panelData().temp1B.toFixed(1) }}</div>
         <div>{{ panelData().temp2B.toFixed(1) }}</div>
     </div>
+    
+    <!-- Real-time charts -->
+    <div class="border-t border-cyan-400/30 pt-3 mt-3">
+        <button (click)="toggleChartView()" class="w-full text-left font-semibold text-cyan-200 flex justify-between items-center hover:text-cyan-100 transition-colors">
+            <span>实时数据图表</span>
+            <span class="transform transition-transform" [class]="isChartVisible() ? 'rotate-180' : ''">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
+              </svg>
+            </span>
+        </button>
+        @if(isChartVisible()) {
+            <div class="mt-2 space-y-3">
+                <div>
+                    <div class="flex justify-between items-center text-xs text-cyan-200/80 mb-1">
+                        <h4>最大压力 (MPa)</h4>
+                        <div>
+                          <span class="inline-block w-2 h-2 rounded-full mr-1" style="background-color: #34d399;"></span>轴1
+                          <span class="inline-block w-2 h-2 rounded-full mr-1 ml-2" style="background-color: #fb923c;"></span>轴2
+                        </div>
+                    </div>
+                    <svg #pressureChart class="w-full h-24 bg-slate-800/50 rounded"></svg>
+                </div>
+                <div>
+                    <div class="flex justify-between items-center text-xs text-cyan-200/80 mb-1">
+                      <h4>最小厚度 (μm)</h4>
+                       <div>
+                          <span class="inline-block w-2 h-2 rounded-full mr-1" style="background-color: #34d399;"></span>轴1
+                          <span class="inline-block w-2 h-2 rounded-full mr-1 ml-2" style="background-color: #fb923c;"></span>轴2
+                        </div>
+                    </div>
+                    <svg #thicknessChart class="w-full h-24 bg-slate-800/50 rounded"></svg>
+                </div>
+                <div>
+                    <div class="flex justify-between items-center text-xs text-cyan-200/80 mb-1">
+                      <h4>测点A温度 (°C)</h4>
+                       <div>
+                          <span class="inline-block w-2 h-2 rounded-full mr-1" style="background-color: #34d399;"></span>轴1
+                          <span class="inline-block w-2 h-2 rounded-full mr-1 ml-2" style="background-color: #fb923c;"></span>轴2
+                        </div>
+                    </div>
+                    <svg #tempChart class="w-full h-24 bg-slate-800/50 rounded"></svg>
+                </div>
+            </div>
+        }
+    </div>
   </div>
 
   <!-- Top Right: View Control Bar -->

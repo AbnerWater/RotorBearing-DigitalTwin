@@ -1,7 +1,8 @@
-import { Component, ElementRef, ViewChild, AfterViewInit, OnDestroy, ChangeDetectionStrategy, HostListener, signal, computed } from '@angular/core';
+import { Component, ElementRef, ViewChild, AfterViewInit, OnDestroy, ChangeDetectionStrategy, HostListener, signal, computed, effect } from '@angular/core';
 
-// Declare Three.js and helpers as they are loaded from a script tag.
+// Declare Three.js and D3.js as they are loaded from script tags.
 declare const THREE: any;
+declare const d3: any;
 
 type DisplayType = 'pressure' | 'thickness' | 'temperature';
 type DisplayStyle = 'shaded' | 'shaded-edges' | 'wireframe' | 'transparent';
@@ -50,6 +51,9 @@ export class AppComponent implements AfterViewInit, OnDestroy {
   private rendererCanvas!: ElementRef<HTMLCanvasElement>;
   @ViewChild('projectFileInput')
   private projectFileInput!: ElementRef<HTMLInputElement>;
+  @ViewChild('pressureChart') private pressureChartEl!: ElementRef<SVGElement>;
+  @ViewChild('thicknessChart') private thicknessChartEl!: ElementRef<SVGElement>;
+  @ViewChild('tempChart') private tempChartEl!: ElementRef<SVGElement>;
 
   private scene!: any;
   private camera!: any;
@@ -68,6 +72,7 @@ export class AppComponent implements AfterViewInit, OnDestroy {
   // --- State Management with Signals ---
   isPlaying = signal(true);
   isSettingsVisible = signal(false);
+  isChartVisible = signal(true);
   rotationSpeed = signal(100); // RPM
   displayType = signal<DisplayType>('pressure');
   displayStyle = signal<DisplayStyle>('shaded');
@@ -118,9 +123,40 @@ export class AppComponent implements AfterViewInit, OnDestroy {
       return steps;
   });
 
+  // --- Charting Properties ---
+  private readonly MAX_CHART_POINTS = 200;
+  private chartData = {
+      pressure: {
+          bearing1: [] as { time: number; value: number }[],
+          bearing2: [] as { time: number; value: number }[],
+      },
+      thickness: {
+          bearing1: [] as { time: number; value: number }[],
+          bearing2: [] as { time: number; value: number }[],
+      },
+      temperature: {
+          bearing1: [] as { time: number; value: number }[],
+          bearing2: [] as { time: number; value: number }[],
+      },
+  };
+  private charts: { [key: string]: any } = {};
+
+  constructor() {
+    effect(() => {
+      if (this.isChartVisible()) {
+        // Use timeout to allow Angular to render the SVG elements and for them to get dimensions
+        setTimeout(() => this.initCharts(), 0);
+      } else {
+        // Clear chart instances when they are hidden as their DOM elements are destroyed
+        this.charts = {};
+      }
+    });
+  }
+
   async ngAfterViewInit(): Promise<void> {
     this.initThree();
     await this.rebuildScene();
+    // this.initCharts(); // Is now handled by the effect
     this.animate();
   }
 
@@ -139,6 +175,10 @@ export class AppComponent implements AfterViewInit, OnDestroy {
     this.isPlaying.set(!this.isPlaying());
   }
 
+  toggleChartView(): void {
+    this.isChartVisible.set(!this.isChartVisible());
+  }
+  
   toggleSettings(): void {
     this.settingsForm.set(this.settings());
     this.isSettingsVisible.set(true);
@@ -364,6 +404,104 @@ export class AppComponent implements AfterViewInit, OnDestroy {
     this.axisCamera = new THREE.OrthographicCamera(-5, 5, 5, -5, 0.1, 100);
   }
 
+  private initCharts(): void {
+    // If charts are already initialized, do nothing.
+    // This prevents re-initialization from the setTimeout retry loop.
+    if (this.charts.pressure) return;
+
+    if (!this.pressureChartEl || !this.thicknessChartEl || !this.tempChartEl) {
+        setTimeout(() => this.initCharts(), 50);
+        return;
+    }
+    
+    const pressureChart = this.setupChart(this.pressureChartEl, '#34d399', '#fb923c');
+    const thicknessChart = this.setupChart(this.thicknessChartEl, '#34d399', '#fb923c');
+    const tempChart = this.setupChart(this.tempChartEl, '#34d399', '#fb923c');
+    
+    // If any chart failed to initialize (e.g. no dimensions yet), retry.
+    if (!pressureChart || !thicknessChart || !tempChart) {
+        setTimeout(() => this.initCharts(), 50);
+        return;
+    }
+
+    this.charts.pressure = pressureChart;
+    this.charts.thickness = thicknessChart;
+    this.charts.temperature = tempChart;
+  }
+
+  private setupChart(elementRef: ElementRef, color1: string, color2: string) {
+    const el = elementRef.nativeElement;
+    const margin = { top: 10, right: 20, bottom: 20, left: 35 };
+    const width = el.clientWidth - margin.left - margin.right;
+    const height = el.clientHeight - margin.top - margin.bottom;
+
+    if (width <= 0 || height <= 0) {
+      // Don't initialize if the element has no size.
+      return null;
+    }
+
+    const d3el = d3.select(el);
+    d3el.selectAll('*').remove(); // Clear previous contents before drawing
+
+    const svg = d3el
+        .append("g")
+        .attr("transform", `translate(${margin.left},${margin.top})`);
+    
+    const x = d3.scaleLinear().range([0, width]);
+    const y = d3.scaleLinear().range([height, 0]);
+
+    svg.append("g")
+        .attr("class", "x-axis")
+        .attr("transform", `translate(0,${height})`)
+        .call(d3.axisBottom(x).ticks(3).tickFormat(() => ''));
+
+    svg.append("g")
+        .attr("class", "y-axis")
+        .call(d3.axisLeft(y).ticks(4).tickSize(-width))
+        .selectAll(".tick line")
+        .attr("stroke", "#475569");
+    
+    svg.selectAll(".domain").remove();
+
+    const line1 = svg.append("path").attr("fill", "none").attr("stroke", color1).attr("stroke-width", 2);
+    const line2 = svg.append("path").attr("fill", "none").attr("stroke", color2).attr("stroke-width", 2);
+
+    return { svg, x, y, width, height, line1, line2 };
+  }
+  
+  private updateCharts(elapsedTime: number): void {
+      if (!this.isChartVisible() || Object.keys(this.charts).length === 0) return;
+
+      const updateSingleChart = (chart: any, data1: any[], data2: any[]) => {
+          if (!chart || data1.length < 2) return;
+
+          const lastTime = data1[data1.length - 1].time;
+          const firstTime = data1[0].time;
+          chart.x.domain([firstTime, lastTime]);
+
+          const allValues = [...data1.map(d => d.value), ...data2.map(d => d.value)];
+          const yDomain = d3.extent(allValues);
+
+          if (yDomain[0] !== undefined && yDomain[1] !== undefined) {
+              const padding = (yDomain[1] - yDomain[0]) * 0.1 || 1;
+              chart.y.domain([yDomain[0] - padding, yDomain[1] + padding]);
+          }
+
+          chart.svg.select(".y-axis").transition().duration(50).call(d3.axisLeft(chart.y).ticks(4).tickSize(-chart.width));
+          
+          const lineGenerator = d3.line()
+              .x((d: any) => chart.x(d.time))
+              .y((d: any) => chart.y(d.value));
+
+          chart.line1.attr("d", lineGenerator(data1));
+          chart.line2.attr("d", lineGenerator(data2));
+      };
+
+      updateSingleChart(this.charts.pressure, this.chartData.pressure.bearing1, this.chartData.pressure.bearing2);
+      updateSingleChart(this.charts.thickness, this.chartData.thickness.bearing1, this.chartData.thickness.bearing2);
+      updateSingleChart(this.charts.temperature, this.chartData.temperature.bearing1, this.chartData.temperature.bearing2);
+  }
+
   private cleanupScene(): void {
       const toRemove = [this.rotor, this.bearing1, this.bearing2];
       toRemove.forEach(obj => {
@@ -586,13 +724,38 @@ export class AppComponent implements AfterViewInit, OnDestroy {
     const physics1 = this.calculateBearingPhysics(this.bearing1, rpm, elapsedTime, false, settings.bearing1);
     const physics2 = this.calculateBearingPhysics(this.bearing2, rpm, elapsedTime, true, settings.bearing2);
 
+    const temp1A = physics1.stats.maxTemp - 5 + Math.random();
+    const temp2A = physics2.stats.maxTemp - 5 + Math.random();
+
     this.panelData.set({
         maxPressure1: physics1.stats.maxPressure, maxPressure2: physics2.stats.maxPressure,
         minThickness1: physics1.stats.minThickness, minThickness2: physics2.stats.minThickness,
-        temp1A: physics1.stats.maxTemp - 5 + Math.random(), temp1B: physics1.stats.maxTemp - 2 + Math.random(),
-        temp2A: physics2.stats.maxTemp - 5 + Math.random(), temp2B: physics2.stats.maxTemp - 2 + Math.random(),
+        temp1A: temp1A, temp1B: physics1.stats.maxTemp - 2 + Math.random(),
+        temp2A: temp2A, temp2B: physics2.stats.maxTemp - 2 + Math.random(),
     });
     
+    // --- Collect data for charts ---
+    const now = elapsedTime;
+    const dataSources = [
+      { key: 'pressure', p1: physics1.stats.maxPressure, p2: physics2.stats.maxPressure },
+      { key: 'thickness', p1: physics1.stats.minThickness, p2: physics2.stats.minThickness },
+      { key: 'temperature', p1: temp1A, p2: temp2A },
+    ];
+    
+    dataSources.forEach(source => {
+      const dataSet = this.chartData[source.key as keyof typeof this.chartData];
+      dataSet.bearing1.push({ time: now, value: source.p1 });
+      dataSet.bearing2.push({ time: now, value: source.p2 });
+
+      if (dataSet.bearing1.length > this.MAX_CHART_POINTS) {
+          dataSet.bearing1.shift();
+          dataSet.bearing2.shift();
+      }
+    });
+
+    this.updateCharts(elapsedTime);
+    // --- End chart data collection ---
+
     let min = Infinity, max = -Infinity;
     switch (type) {
         case 'pressure': min = 0; max = Math.max(physics1.stats.maxPressure, physics2.stats.maxPressure); break;
