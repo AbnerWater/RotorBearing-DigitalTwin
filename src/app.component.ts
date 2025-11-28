@@ -1,34 +1,7 @@
 import { Component, ElementRef, ViewChild, AfterViewInit, OnDestroy, ChangeDetectionStrategy, HostListener, signal, computed, effect } from '@angular/core';
 
-// FIX: Declare THREE as a variable for value access (e.g., new THREE.Scene()) and a namespace
-// for type access (e.g., private scene: THREE.Scene). Using interfaces inside the namespace
-// prevents value-space conflicts that cause "Duplicate identifier" errors.
+// Declare THREE.js and D3.js as they are loaded from script tags
 declare var THREE: any;
-declare namespace THREE {
-    interface Scene {}
-    interface OrthographicCamera {}
-    interface WebGLRenderer {}
-    interface OrbitControls {}
-    interface Group {}
-    interface Vector3 {}
-    interface Quaternion {}
-    interface Clock {}
-    interface Color {}
-    interface HemisphereLight {}
-    interface DirectionalLight {}
-    interface AxesHelper {}
-    interface STLLoader {}
-    interface MeshStandardMaterial {}
-    interface CylinderGeometry {}
-    interface Mesh {}
-    interface LineBasicMaterial {}
-    interface EdgesGeometry {}
-    interface LineSegments {}
-    interface Float32BufferAttribute {}
-    interface MeshBasicMaterial {}
-}
-
-// Declare D3.js as it is loaded from a script tag.
 declare const d3: any;
 
 type DisplayType = 'pressure' | 'thickness' | 'temperature';
@@ -82,15 +55,15 @@ export class AppComponent implements AfterViewInit, OnDestroy {
   @ViewChild('thicknessChart') private thicknessChartEl!: ElementRef<SVGElement>;
   @ViewChild('tempChart') private tempChartEl!: ElementRef<SVGElement>;
 
-  private scene!: THREE.Scene;
-  private camera!: THREE.OrthographicCamera;
-  private renderer!: THREE.WebGLRenderer;
-  private controls!: THREE.OrbitControls;
-  private rotor!: THREE.Group;
-  private bearings: THREE.Group[] = [];
-  private originalRotorPosition!: THREE.Vector3;
-  private axisScene!: THREE.Scene;
-  private axisCamera!: THREE.OrthographicCamera;
+  private scene!: any;
+  private camera!: any;
+  private renderer!: any;
+  private controls!: any;
+  private rotor!: any;
+  private bearings: any[] = [];
+  private originalRotorPosition!: any;
+  private axisScene!: any;
+  private axisCamera!: any;
 
   private animationFrameId: number | null = null;
   private clock = new THREE.Clock();
@@ -454,7 +427,7 @@ export class AppComponent implements AfterViewInit, OnDestroy {
     }
   }
 
-  @HostListener('window:resize', ['$event'])
+  @HostListener('window:resize')
   onWindowResize() {
     const aspect = window.innerWidth / window.innerHeight;
     const frustumSize = 30;
@@ -640,7 +613,7 @@ export class AppComponent implements AfterViewInit, OnDestroy {
     }
   }
 
-  private createDefaultRotor(config: RotorConfig): THREE.Group {
+  private createDefaultRotor(config: RotorConfig): any {
     const rotorGroup = new THREE.Group();
     const shaftMaterial = new THREE.MeshStandardMaterial({ color: config.color, metalness: 0.8, roughness: 0.2 });
     shaftMaterial.userData = { originalOpacity: 1.0 };
@@ -684,7 +657,7 @@ export class AppComponent implements AfterViewInit, OnDestroy {
     return rotorGroup;
   }
   
-  private async createRotor(config: RotorConfig): Promise<THREE.Group> {
+  private async createRotor(config: RotorConfig): Promise<any> {
     if (config.type === 'stl' && config.stlData) {
         return new Promise((resolve, reject) => {
             try {
@@ -723,7 +696,7 @@ export class AppComponent implements AfterViewInit, OnDestroy {
     }
   }
   
-  private createBearing(config: BearingConfig): THREE.Group {
+  private createBearing(config: BearingConfig): any {
     const { position, axis, diameter, width } = config;
     const bearingGroup = new THREE.Group();
     const radius = diameter / 2;
@@ -856,8 +829,8 @@ export class AppComponent implements AfterViewInit, OnDestroy {
     });
   }
   
-  private calculateBearingPhysics(bearingGroup: THREE.Group, rpm: number, elapsedTime: number, config: BearingConfig) {
-    const geometry = (bearingGroup.children[0] as THREE.Mesh).geometry;
+  private calculateBearingPhysics(bearingGroup: any, rpm: number, elapsedTime: number, config: BearingConfig) {
+    const geometry = (bearingGroup.children[0] as any).geometry;
     const { originalPositions, width } = geometry.userData;
     
     const speedFactor = Math.pow(Math.min(rpm / 4000, 1.0), 1.5);
@@ -945,8 +918,8 @@ export class AppComponent implements AfterViewInit, OnDestroy {
     return intraPadProfile * loadFactor;
   }
 
-  private applyBearingVisuals(bearingGroup: THREE.Group, physics: { values: Float32Array }, range: { min: number; max: number }) {
-    const surfaceMesh = bearingGroup.children[0] as THREE.Mesh;
+  private applyBearingVisuals(bearingGroup: any, physics: { values: Float32Array }, range: { min: number; max: number }) {
+    const surfaceMesh = bearingGroup.children[0] as any;
     const geometry = surfaceMesh.geometry;
     const { originalPositions } = geometry.userData;
     const positions = geometry.attributes.position;

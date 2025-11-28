@@ -22,3 +22,8 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+.angular/
+1000MW汽轮机_中压.json
+1000MW汽轮机_高压中压.json
+ROTOR_DEMO_FULL.stl
+ROTOR_DEMO.stl
