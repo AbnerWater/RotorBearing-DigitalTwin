@@ -1,7 +1,34 @@
 import { Component, ElementRef, ViewChild, AfterViewInit, OnDestroy, ChangeDetectionStrategy, HostListener, signal, computed, effect } from '@angular/core';
 
-// Declare Three.js and D3.js as they are loaded from script tags.
-declare const THREE: any;
+// FIX: Declare THREE as a variable and a namespace to allow both value access (new THREE.Scene())
+// and type access (private scene: THREE.Scene). Empty classes are sufficient to resolve type errors.
+// This resolves the "Cannot find namespace 'THREE'" errors.
+declare var THREE: any;
+declare namespace THREE {
+    class Scene {}
+    class OrthographicCamera {}
+    class WebGLRenderer {}
+    class OrbitControls {}
+    class Group {}
+    class Vector3 {}
+    class Quaternion {}
+    class Clock {}
+    class Color {}
+    class HemisphereLight {}
+    class DirectionalLight {}
+    class AxesHelper {}
+    class STLLoader {}
+    class MeshStandardMaterial {}
+    class CylinderGeometry {}
+    class Mesh {}
+    class LineBasicMaterial {}
+    class EdgesGeometry {}
+    class LineSegments {}
+    class Float32BufferAttribute {}
+    class MeshBasicMaterial {}
+}
+
+// Declare D3.js as it is loaded from a script tag.
 declare const d3: any;
 
 type DisplayType = 'pressure' | 'thickness' | 'temperature';
@@ -13,6 +40,8 @@ interface BearingConfig {
     diameter: number;
     width: number;
     loadAngle: number;
+    padCount: number;
+    padAngle: number;
 }
 interface RotorConfig {
     type: 'default' | 'stl';
@@ -22,8 +51,7 @@ interface RotorConfig {
 }
 interface SceneSettings {
     rotor: RotorConfig;
-    bearing1: BearingConfig;
-    bearing2: BearingConfig;
+    bearings: BearingConfig[];
 }
 
 // Function to safely serialize settings for saving (omits File object)
@@ -37,8 +65,10 @@ const serializeSettings = (settings: SceneSettings): string => {
 
 const getDefaultSettings = (): SceneSettings => ({
     rotor: { type: 'default', file: null, color: '#cccccc', rotationAxis: { x: 1, y: 0, z: 0 } },
-    bearing1: { position: { x: -8, y: 0, z: 0 }, axis: { x: 1, y: 0, z: 0 }, diameter: 1.0, width: 1.0, loadAngle: 0 },
-    bearing2: { position: { x: 8, y: 0, z: 0 }, axis: { x: 1, y: 0, z: 0 }, diameter: 1.0, width: 1.0, loadAngle: 0 }
+    bearings: [
+      { position: { x: -8, y: 0, z: 0 }, axis: { x: 1, y: 0, z: 0 }, diameter: 1.0, width: 1.0, loadAngle: 0, padCount: 0, padAngle: 0 },
+      { position: { x: 8, y: 0, z: 0 }, axis: { x: 1, y: 0, z: 0 }, diameter: 1.0, width: 1.0, loadAngle: 0, padCount: 0, padAngle: 0 }
+    ]
 });
 
 
@@ -55,16 +85,15 @@ export class AppComponent implements AfterViewInit, OnDestroy {
   @ViewChild('thicknessChart') private thicknessChartEl!: ElementRef<SVGElement>;
   @ViewChild('tempChart') private tempChartEl!: ElementRef<SVGElement>;
 
-  private scene!: any;
-  private camera!: any;
-  private renderer!: any;
-  private controls!: any;
-  private rotor!: any;
-  private bearing1!: any;
-  private bearing2!: any;
-  private originalRotorPosition!: any;
-  private axisScene!: any;
-  private axisCamera!: any;
+  private scene!: THREE.Scene;
+  private camera!: THREE.OrthographicCamera;
+  private renderer!: THREE.WebGLRenderer;
+  private controls!: THREE.OrbitControls;
+  private rotor!: THREE.Group;
+  private bearings: THREE.Group[] = [];
+  private originalRotorPosition!: THREE.Vector3;
+  private axisScene!: THREE.Scene;
+  private axisCamera!: THREE.OrthographicCamera;
 
   private animationFrameId: number | null = null;
   private clock = new THREE.Clock();
@@ -88,12 +117,7 @@ export class AppComponent implements AfterViewInit, OnDestroy {
   
   isDirty = computed(() => serializeSettings(this.settingsForm()) !== serializeSettings(this.savedSettings()));
 
-  panelData = signal({
-    maxPressure1: 0, maxPressure2: 0,
-    minThickness1: 0, minThickness2: 0,
-    temp1A: 0, temp1B: 0,
-    temp2A: 0, temp2B: 0,
-  });
+  panelData = signal<any[]>([]);
   legendRange = signal({min: 0, max: 1});
 
   legendData = computed(() => {
@@ -125,23 +149,24 @@ export class AppComponent implements AfterViewInit, OnDestroy {
 
   // --- Charting Properties ---
   private readonly MAX_CHART_POINTS = 200;
+  chartColors = ['#34d399', '#fb923c', '#60a5fa', '#f87171', '#a78bfa', '#fbbf24', '#4ade80', '#2dd4bf', '#818cf8', '#f472b6'];
+
   private chartData = {
-      pressure: {
-          bearing1: [] as { time: number; value: number }[],
-          bearing2: [] as { time: number; value: number }[],
-      },
-      thickness: {
-          bearing1: [] as { time: number; value: number }[],
-          bearing2: [] as { time: number; value: number }[],
-      },
-      temperature: {
-          bearing1: [] as { time: number; value: number }[],
-          bearing2: [] as { time: number; value: number }[],
-      },
+      pressure: [] as { time: number; value: number }[][],
+      thickness: [] as { time: number; value: number }[][],
+      temperature: [] as { time: number; value: number }[][],
   };
   private charts: { [key: string]: any } = {};
 
   constructor() {
+    // Re-initialize chart data structure when bearing count changes
+    effect(() => {
+      const bearingCount = this.settings().bearings.length;
+      this.chartData.pressure = Array.from({ length: bearingCount }, () => []);
+      this.chartData.thickness = Array.from({ length: bearingCount }, () => []);
+      this.chartData.temperature = Array.from({ length: bearingCount }, () => []);
+    });
+
     effect(() => {
       if (this.isChartVisible()) {
         // Use timeout to allow Angular to render the SVG elements and for them to get dimensions
@@ -156,7 +181,6 @@ export class AppComponent implements AfterViewInit, OnDestroy {
   async ngAfterViewInit(): Promise<void> {
     this.initThree();
     await this.rebuildScene();
-    // this.initCharts(); // Is now handled by the effect
     this.animate();
   }
 
@@ -180,7 +204,8 @@ export class AppComponent implements AfterViewInit, OnDestroy {
   }
   
   toggleSettings(): void {
-    this.settingsForm.set(this.settings());
+    // Deep copy to prevent direct mutation of the original signal
+    this.settingsForm.set(JSON.parse(serializeSettings(this.settings())));
     this.isSettingsVisible.set(true);
   }
   
@@ -203,39 +228,94 @@ export class AppComponent implements AfterViewInit, OnDestroy {
     this.displayStyle.set((event.target as HTMLSelectElement).value as DisplayStyle);
     this.applyDisplayStyle();
   }
+  
+  // --- Settings Form Update Handlers (Refactored) ---
 
-  onFileSelected(event: Event): void {
-      const file = (event.target as HTMLInputElement).files?.[0];
-      if (file) {
-          this.updateSettings('rotor.file', file);
-      }
+  private getNumberValue(event: Event): number {
+      const value = (event.target as HTMLInputElement).value;
+      const numValue = Number(value);
+      // Ensure empty strings or non-numeric input don't result in an unwanted 0
+      return (typeof value === 'string' && !isNaN(numValue) && value.trim() !== '') ? numValue : 0;
+  }
+
+  updateRotorType(type: 'default' | 'stl'): void {
+      this.settingsForm.update(current => ({
+          ...current,
+          rotor: { ...current.rotor, type, file: type === 'default' ? null : current.rotor.file }
+      }));
+  }
+
+  onRotorFileSelected(event: Event): void {
+      const file = (event.target as HTMLInputElement).files?.[0] ?? null;
+      this.settingsForm.update(current => ({
+          ...current,
+          rotor: { ...current.rotor, file }
+      }));
+  }
+
+  updateRotorColor(event: Event): void {
+      const color = (event.target as HTMLInputElement).value;
+      this.settingsForm.update(current => ({
+          ...current,
+          rotor: { ...current.rotor, color }
+      }));
+  }
+
+  updateRotorAxis(axis: 'x' | 'y' | 'z', event: Event): void {
+      const value = this.getNumberValue(event);
+      this.settingsForm.update(current => ({
+          ...current,
+          rotor: {
+              ...current.rotor,
+              rotationAxis: { ...current.rotor.rotationAxis, [axis]: value }
+          }
+      }));
   }
   
-  updateSettings(path: string, event: Event | string | File): void {
-      const value = (typeof event === 'object' && 'target' in event) 
-        ? (event.target as HTMLInputElement).value 
-        : event;
-
-      this.settingsForm.update(currentSettings => {
-          const newSettings = JSON.parse(serializeSettings(currentSettings));
-          
-          if (currentSettings.rotor.file) {
-            newSettings.rotor.file = currentSettings.rotor.file;
-          }
-
-          let obj: any = newSettings;
-          const keys = path.split('.');
-          const lastKey = keys.pop()!;
-          keys.forEach(key => { obj = obj[key]; });
-          
-          if (value instanceof File) {
-            obj[lastKey] = value;
-          } else {
-            obj[lastKey] = typeof value === 'string' && !isNaN(Number(value)) ? Number(value) : value;
-          }
-
-          return newSettings as SceneSettings;
+  updateBearingValue(bearingIndex: number, key: keyof Omit<BearingConfig, 'position' | 'axis'>, event: Event): void {
+      const value = this.getNumberValue(event);
+      this.settingsForm.update(current => {
+          const newBearings = [...current.bearings];
+          newBearings[bearingIndex] = { ...newBearings[bearingIndex], [key]: value };
+          return { ...current, bearings: newBearings };
       });
+  }
+
+  updateBearingVector(bearingIndex: number, key: 'position' | 'axis', axis: 'x' | 'y' | 'z', event: Event): void {
+      const value = this.getNumberValue(event);
+      this.settingsForm.update(current => {
+          const newBearings = [...current.bearings];
+          const bearing = newBearings[bearingIndex];
+          newBearings[bearingIndex] = {
+              ...bearing,
+              [key]: { ...(bearing[key]), [axis]: value }
+          };
+          return { ...current, bearings: newBearings };
+      });
+  }
+
+  addBearing(): void {
+    this.settingsForm.update(current => {
+      if (current.bearings.length >= 10) return current;
+      const newBearing: BearingConfig = {
+        position: { x: 10, y: 0, z: 0 },
+        axis: { x: 1, y: 0, z: 0 },
+        diameter: 1.0,
+        width: 1.0,
+        loadAngle: 0,
+        padCount: 0,
+        padAngle: 0
+      };
+      return { ...current, bearings: [...current.bearings, newBearing] };
+    });
+  }
+
+  removeBearing(index: number): void {
+    this.settingsForm.update(current => {
+      if (current.bearings.length <= 1) return current;
+      const newBearings = current.bearings.filter((_, i) => i !== index);
+      return { ...current, bearings: newBearings };
+    });
   }
 
   applySettings(): void {
@@ -318,7 +398,7 @@ export class AppComponent implements AfterViewInit, OnDestroy {
         try {
             const loadedSettings = JSON.parse(reader.result as string);
             // Basic validation
-            if (loadedSettings.rotor && loadedSettings.bearing1) {
+            if (loadedSettings.rotor && loadedSettings.bearings) {
                 const newSettings: SceneSettings = { ...getDefaultSettings(), ...loadedSettings };
                 newSettings.rotor.file = null; // File handle must be re-established by user
                 
@@ -405,20 +485,19 @@ export class AppComponent implements AfterViewInit, OnDestroy {
   }
 
   private initCharts(): void {
-    // If charts are already initialized, do nothing.
-    // This prevents re-initialization from the setTimeout retry loop.
     if (this.charts.pressure) return;
-
     if (!this.pressureChartEl || !this.thicknessChartEl || !this.tempChartEl) {
         setTimeout(() => this.initCharts(), 50);
         return;
     }
     
-    const pressureChart = this.setupChart(this.pressureChartEl, '#34d399', '#fb923c');
-    const thicknessChart = this.setupChart(this.thicknessChartEl, '#34d399', '#fb923c');
-    const tempChart = this.setupChart(this.tempChartEl, '#34d399', '#fb923c');
+    const bearingCount = this.settings().bearings.length;
+    const colors = this.chartColors.slice(0, bearingCount);
+
+    const pressureChart = this.setupChart(this.pressureChartEl, colors);
+    const thicknessChart = this.setupChart(this.thicknessChartEl, colors);
+    const tempChart = this.setupChart(this.tempChartEl, colors);
     
-    // If any chart failed to initialize (e.g. no dimensions yet), retry.
     if (!pressureChart || !thicknessChart || !tempChart) {
         setTimeout(() => this.initCharts(), 50);
         return;
@@ -429,19 +508,16 @@ export class AppComponent implements AfterViewInit, OnDestroy {
     this.charts.temperature = tempChart;
   }
 
-  private setupChart(elementRef: ElementRef, color1: string, color2: string) {
+  private setupChart(elementRef: ElementRef, colors: string[]) {
     const el = elementRef.nativeElement;
     const margin = { top: 10, right: 20, bottom: 20, left: 35 };
     const width = el.clientWidth - margin.left - margin.right;
     const height = el.clientHeight - margin.top - margin.bottom;
 
-    if (width <= 0 || height <= 0) {
-      // Don't initialize if the element has no size.
-      return null;
-    }
+    if (width <= 0 || height <= 0) return null;
 
     const d3el = d3.select(el);
-    d3el.selectAll('*').remove(); // Clear previous contents before drawing
+    d3el.selectAll('*').remove(); 
 
     const svg = d3el
         .append("g")
@@ -463,23 +539,24 @@ export class AppComponent implements AfterViewInit, OnDestroy {
     
     svg.selectAll(".domain").remove();
 
-    const line1 = svg.append("path").attr("fill", "none").attr("stroke", color1).attr("stroke-width", 2);
-    const line2 = svg.append("path").attr("fill", "none").attr("stroke", color2).attr("stroke-width", 2);
+    const lines = colors.map(color => 
+      svg.append("path").attr("fill", "none").attr("stroke", color).attr("stroke-width", 2)
+    );
 
-    return { svg, x, y, width, height, line1, line2 };
+    return { svg, x, y, width, height, lines };
   }
   
   private updateCharts(elapsedTime: number): void {
       if (!this.isChartVisible() || Object.keys(this.charts).length === 0) return;
 
-      const updateSingleChart = (chart: any, data1: any[], data2: any[]) => {
-          if (!chart || data1.length < 2) return;
+      const updateSingleChart = (chart: any, dataSets: any[][]) => {
+          if (!chart || !dataSets.length || dataSets[0].length < 2) return;
 
-          const lastTime = data1[data1.length - 1].time;
-          const firstTime = data1[0].time;
+          const lastTime = dataSets[0][dataSets[0].length - 1].time;
+          const firstTime = dataSets[0][0].time;
           chart.x.domain([firstTime, lastTime]);
 
-          const allValues = [...data1.map(d => d.value), ...data2.map(d => d.value)];
+          const allValues = dataSets.flat().map(d => d.value);
           const yDomain = d3.extent(allValues);
 
           if (yDomain[0] !== undefined && yDomain[1] !== undefined) {
@@ -493,17 +570,18 @@ export class AppComponent implements AfterViewInit, OnDestroy {
               .x((d: any) => chart.x(d.time))
               .y((d: any) => chart.y(d.value));
 
-          chart.line1.attr("d", lineGenerator(data1));
-          chart.line2.attr("d", lineGenerator(data2));
+          chart.lines.forEach((line: any, index: number) => {
+              line.attr("d", lineGenerator(dataSets[index]));
+          });
       };
 
-      updateSingleChart(this.charts.pressure, this.chartData.pressure.bearing1, this.chartData.pressure.bearing2);
-      updateSingleChart(this.charts.thickness, this.chartData.thickness.bearing1, this.chartData.thickness.bearing2);
-      updateSingleChart(this.charts.temperature, this.chartData.temperature.bearing1, this.chartData.temperature.bearing2);
+      updateSingleChart(this.charts.pressure, this.chartData.pressure);
+      updateSingleChart(this.charts.thickness, this.chartData.thickness);
+      updateSingleChart(this.charts.temperature, this.chartData.temperature);
   }
 
   private cleanupScene(): void {
-      const toRemove = [this.rotor, this.bearing1, this.bearing2];
+      const toRemove = [this.rotor, ...this.bearings];
       toRemove.forEach(obj => {
           if (obj) {
               this.scene.remove(obj);
@@ -519,9 +597,8 @@ export class AppComponent implements AfterViewInit, OnDestroy {
               });
           }
       });
-      this.rotor = null;
-      this.bearing1 = null;
-      this.bearing2 = null;
+      this.rotor = null!;
+      this.bearings = [];
   }
 
   private async rebuildScene(): Promise<void> {
@@ -532,11 +609,11 @@ export class AppComponent implements AfterViewInit, OnDestroy {
         this.originalRotorPosition = this.rotor.position.clone();
         this.scene.add(this.rotor);
 
-        this.bearing1 = this.createBearing(settings.bearing1);
-        this.scene.add(this.bearing1);
-
-        this.bearing2 = this.createBearing(settings.bearing2);
-        this.scene.add(this.bearing2);
+        this.bearings = settings.bearings.map(bearingConfig => {
+            const bearing = this.createBearing(bearingConfig);
+            this.scene.add(bearing);
+            return bearing;
+        });
 
         this.applyDisplayStyle();
     } catch(e) {
@@ -547,7 +624,7 @@ export class AppComponent implements AfterViewInit, OnDestroy {
     }
   }
 
-  private createDefaultRotor(config: RotorConfig): any {
+  private createDefaultRotor(config: RotorConfig): THREE.Group {
     const rotorGroup = new THREE.Group();
     const shaftMaterial = new THREE.MeshStandardMaterial({ color: config.color, metalness: 0.8, roughness: 0.2 });
     shaftMaterial.userData = { originalOpacity: 1.0 };
@@ -591,7 +668,7 @@ export class AppComponent implements AfterViewInit, OnDestroy {
     return rotorGroup;
   }
   
-  private async createRotor(config: RotorConfig): Promise<any> {
+  private async createRotor(config: RotorConfig): Promise<THREE.Group> {
     if (config.type === 'stl' && config.file) {
         return new Promise((resolve, reject) => {
             const reader = new FileReader();
@@ -632,7 +709,7 @@ export class AppComponent implements AfterViewInit, OnDestroy {
     }
   }
   
-  private createBearing(config: BearingConfig): any {
+  private createBearing(config: BearingConfig): THREE.Group {
     const { position, axis, diameter, width } = config;
     const bearingGroup = new THREE.Group();
     const radius = diameter / 2;
@@ -679,7 +756,7 @@ export class AppComponent implements AfterViewInit, OnDestroy {
 
   private applyDisplayStyle(): void {
     const style = this.displayStyle();
-    const objectsToStyle = [this.rotor, this.bearing1, this.bearing2];
+    const objectsToStyle = [this.rotor, ...this.bearings];
 
     objectsToStyle.forEach(obj => {
         if (!obj) return;
@@ -717,63 +794,59 @@ export class AppComponent implements AfterViewInit, OnDestroy {
   }
 
   private updateBearingVisualizations(rpm: number, elapsedTime: number): void {
-    if (!this.bearing1 || !this.bearing2) return;
+    if (!this.bearings.length) return;
     const type = this.displayType();
     const settings = this.settings();
 
-    const physics1 = this.calculateBearingPhysics(this.bearing1, rpm, elapsedTime, false, settings.bearing1);
-    const physics2 = this.calculateBearingPhysics(this.bearing2, rpm, elapsedTime, true, settings.bearing2);
+    const allPhysics = settings.bearings.map((bearingConfig, i) => 
+        this.calculateBearingPhysics(this.bearings[i], rpm, elapsedTime, bearingConfig)
+    );
 
-    const temp1A = physics1.stats.maxTemp - 5 + Math.random();
-    const temp2A = physics2.stats.maxTemp - 5 + Math.random();
-
-    this.panelData.set({
-        maxPressure1: physics1.stats.maxPressure, maxPressure2: physics2.stats.maxPressure,
-        minThickness1: physics1.stats.minThickness, minThickness2: physics2.stats.minThickness,
-        temp1A: temp1A, temp1B: physics1.stats.maxTemp - 2 + Math.random(),
-        temp2A: temp2A, temp2B: physics2.stats.maxTemp - 2 + Math.random(),
+    const newPanelData = allPhysics.map(p => {
+        const tempA = p.stats.maxTemp - 5 + Math.random();
+        return {
+            maxPressure: p.stats.maxPressure,
+            minThickness: p.stats.minThickness,
+            tempA: tempA,
+            tempB: p.stats.maxTemp - 2 + Math.random(),
+        };
     });
+    this.panelData.set(newPanelData);
     
-    // --- Collect data for charts ---
     const now = elapsedTime;
-    const dataSources = [
-      { key: 'pressure', p1: physics1.stats.maxPressure, p2: physics2.stats.maxPressure },
-      { key: 'thickness', p1: physics1.stats.minThickness, p2: physics2.stats.minThickness },
-      { key: 'temperature', p1: temp1A, p2: temp2A },
-    ];
-    
-    dataSources.forEach(source => {
-      const dataSet = this.chartData[source.key as keyof typeof this.chartData];
-      dataSet.bearing1.push({ time: now, value: source.p1 });
-      dataSet.bearing2.push({ time: now, value: source.p2 });
+    allPhysics.forEach((physics, i) => {
+        this.chartData.pressure[i]?.push({ time: now, value: physics.stats.maxPressure });
+        this.chartData.thickness[i]?.push({ time: now, value: physics.stats.minThickness });
+        this.chartData.temperature[i]?.push({ time: now, value: newPanelData[i].tempA });
 
-      if (dataSet.bearing1.length > this.MAX_CHART_POINTS) {
-          dataSet.bearing1.shift();
-          dataSet.bearing2.shift();
-      }
+        if (this.chartData.pressure[i]?.length > this.MAX_CHART_POINTS) {
+            this.chartData.pressure[i].shift();
+            this.chartData.thickness[i].shift();
+            this.chartData.temperature[i].shift();
+        }
     });
-
+    
     this.updateCharts(elapsedTime);
-    // --- End chart data collection ---
 
     let min = Infinity, max = -Infinity;
+    const allStats = allPhysics.map(p => p.stats);
     switch (type) {
-        case 'pressure': min = 0; max = Math.max(physics1.stats.maxPressure, physics2.stats.maxPressure); break;
-        case 'thickness': min = Math.min(physics1.stats.minThickness, physics2.stats.minThickness); max = Math.max(50 + (rpm / 4000) * 40, 55); break;
-        case 'temperature': min = 40; max = Math.max(physics1.stats.maxTemp, physics2.stats.maxTemp); break;
+        case 'pressure': min = 0; max = Math.max(...allStats.map(s => s.maxPressure), 0); break;
+        case 'thickness': min = Math.min(...allStats.map(s => s.minThickness), Infinity); max = Math.max(50 + (rpm / 4000) * 40, 55); break;
+        case 'temperature': min = 40; max = Math.max(...allStats.map(s => s.maxTemp), 40); break;
     }
-    this.legendRange.set({ min: min, max: max });
-
-    this.applyBearingVisuals(this.bearing1, physics1, this.legendRange());
-    this.applyBearingVisuals(this.bearing2, physics2, this.legendRange());
+    this.legendRange.set({ min: min, max: max > min ? max : min + 1 });
+    
+    allPhysics.forEach((physics, i) => {
+        this.applyBearingVisuals(this.bearings[i], physics, this.legendRange());
+    });
   }
   
-  private calculateBearingPhysics(bearingGroup: any, rpm: number, elapsedTime: number, isBearing2: boolean, config: BearingConfig) {
-    const geometry = bearingGroup.children[0].geometry;
-    const { originalPositions, radius, width } = geometry.userData;
-    const loadAngleRad = config.loadAngle * Math.PI / 180;
+  private calculateBearingPhysics(bearingGroup: THREE.Group, rpm: number, elapsedTime: number, config: BearingConfig) {
+    const geometry = (bearingGroup.children[0] as THREE.Mesh).geometry;
+    const { originalPositions, width } = geometry.userData;
     
-    const speedFactor = Math.pow(Math.min(rpm / 4000, 1.0), 1.5); // Non-linear response
+    const speedFactor = Math.pow(Math.min(rpm / 4000, 1.0), 1.5);
     const values = new Float32Array(originalPositions.count);
     let maxPressure = 0, minThickness = Infinity, maxTemp = 0;
 
@@ -783,12 +856,13 @@ export class AppComponent implements AfterViewInit, OnDestroy {
         const oz = originalPositions.getZ(i);
 
         const theta = Math.atan2(oz, ox);
-        const cosTheta = Math.cos(theta - loadAngleRad);
         
-        const basePressureNorm = this.getPressure(cosTheta, oy, width);
+        const pressureMagnitude = this.getPressureMagnitude(theta, config);
+        const axialFalloff = Math.max(0, 1 - Math.pow((2 * oy) / width, 2));
+        const basePressureNorm = pressureMagnitude * axialFalloff;
+        
         const shimmer = 1.0 + Math.sin(elapsedTime * 8 + i * 0.5) * 0.08 * (1 + speedFactor);
-
-        const pressure = basePressureNorm * (2.0 + speedFactor * 15.0) * (isBearing2 ? 1.05 : 1.0) * shimmer;
+        const pressure = basePressureNorm * (2.0 + speedFactor * 15.0) * shimmer;
         const thickness = (5.0 + (1 - basePressureNorm) * 50.0) + (speedFactor * 60.0) * shimmer;
         const temperature = 40.0 + (basePressureNorm * 40.0) + (speedFactor * 75.0) * shimmer;
 
@@ -804,9 +878,61 @@ export class AppComponent implements AfterViewInit, OnDestroy {
     }
     return { values, stats: { maxPressure, minThickness, maxTemp } };
   }
+  
+  private getPressureMagnitude(theta: number, config: BearingConfig): number {
+    const { padCount, padAngle, loadAngle } = config;
+    const loadAngleRad = loadAngle * Math.PI / 180;
 
-  private applyBearingVisuals(bearingGroup: any, physics: { values: Float32Array }, range: { min: number; max: number }) {
-    const surfaceMesh = bearingGroup.children[0];
+    // Case 1: Full 360-degree bearing (padCount is 0 or invalid)
+    if (!padCount || !padAngle || padAngle <= 0 || padAngle >= 360) {
+        // Use half-Sommerfeld approximation for a full bearing.
+        // Pressure is positive in the converging wedge, approx 180 degrees.
+        return Math.max(0, -Math.cos(theta - loadAngleRad));
+    }
+    
+    // Case 2: Tilted-pad bearing
+    const normalizedTheta = theta < 0 ? theta + 2 * Math.PI : theta; // Range [0, 2*PI]
+    const padAngleRad = padAngle * Math.PI / 180;
+    const totalPadAngleRad = padCount * padAngleRad;
+
+    // Fallback if total pad angle is nonsensical
+    if (totalPadAngleRad >= 2 * Math.PI) {
+        return Math.max(0, -Math.cos(theta - loadAngleRad));
+    }
+    
+    const gapAngleRad = (2 * Math.PI - totalPadAngleRad) / padCount;
+    const segmentAngleRad = padAngleRad + gapAngleRad;
+
+    // Find which segment we are in
+    const segmentIndex = Math.floor(normalizedTheta / segmentAngleRad);
+    const angleInSegment = normalizedTheta - (segmentIndex * segmentAngleRad);
+
+    // If the angle is in a gap, pressure is zero.
+    if (angleInSegment > padAngleRad) {
+        return 0;
+    }
+
+    // --- We are on a pad. Now calculate the realistic pressure profile. ---
+    
+    // 1. Calculate the angle relative to the pad's leading edge (phi).
+    const phi = angleInSegment;
+
+    // 2. Create a sinusoidal pressure profile across the pad.
+    // This makes pressure 0 at the start (phi=0) and end (phi=padAngleRad) of the pad.
+    const intraPadProfile = Math.sin(phi * Math.PI / padAngleRad);
+
+    // 3. Determine the center of the current pad to find how much load it's taking.
+    const padCenterAngle = (segmentIndex * segmentAngleRad) + (padAngleRad / 2);
+    
+    // 4. Calculate a load factor for this pad. The pad directly opposite the load vector gets the most pressure.
+    const loadFactor = Math.max(0, -Math.cos(padCenterAngle - loadAngleRad));
+    
+    // 5. The final pressure is the combination of the profile within the pad and the load on that pad.
+    return intraPadProfile * loadFactor;
+  }
+
+  private applyBearingVisuals(bearingGroup: THREE.Group, physics: { values: Float32Array }, range: { min: number; max: number }) {
+    const surfaceMesh = bearingGroup.children[0] as THREE.Mesh;
     const geometry = surfaceMesh.geometry;
     const { originalPositions } = geometry.userData;
     const positions = geometry.attributes.position;
@@ -839,12 +965,6 @@ export class AppComponent implements AfterViewInit, OnDestroy {
     positions.needsUpdate = true;
     colors.needsUpdate = true;
     geometry.computeVertexNormals();
-  }
-
-  private getPressure(cosTheta: number, z: number, length: number): number {
-    const pressureMagnitude = Math.max(0, -cosTheta);
-    const axialFalloff = Math.max(0, 1 - Math.pow((2 * z) / length, 2));
-    return pressureMagnitude * axialFalloff;
   }
 
   private animate(): void {

@@ -19,26 +19,31 @@
       <span class="font-mono text-base font-bold text-lime-300">{{ rotationSpeed().toFixed(0) }} RPM</span>
     </div>
 
-    <div class="grid grid-cols-3 gap-x-2 text-center border-t border-cyan-400/30 pt-3 mt-3">
+    <div class="grid gap-x-2 text-center border-t border-cyan-400/30 pt-3 mt-3" [style.grid-template-columns]="'auto repeat(' + panelData().length + ', 1fr)'">
         <div></div>
-        <div class="font-bold text-cyan-200">轴承 1</div>
-        <div class="font-bold text-cyan-200">轴承 2</div>
+        @for (bearing of panelData(); track $index) {
+          <div class="font-bold text-cyan-200">轴承 {{ $index + 1 }}</div>
+        }
 
         <div class="font-semibold text-left text-cyan-200/80">最大压力</div>
-        <div>{{ panelData().maxPressure1.toFixed(2) }}</div>
-        <div>{{ panelData().maxPressure2.toFixed(2) }}</div>
+        @for (data of panelData(); track $index) {
+          <div>{{ data.maxPressure.toFixed(2) }}</div>
+        }
         
         <div class="font-semibold text-left text-cyan-200/80">最小厚度</div>
-        <div>{{ panelData().minThickness1.toFixed(1) }}</div>
-        <div>{{ panelData().minThickness2.toFixed(1) }}</div>
+        @for (data of panelData(); track $index) {
+          <div>{{ data.minThickness.toFixed(1) }}</div>
+        }
 
         <div class="font-semibold text-left text-cyan-200/80">测点 A</div>
-        <div>{{ panelData().temp1A.toFixed(1) }}</div>
-        <div>{{ panelData().temp2A.toFixed(1) }}</div>
+        @for (data of panelData(); track $index) {
+          <div>{{ data.tempA.toFixed(1) }}</div>
+        }
 
         <div class="font-semibold text-left text-cyan-200/80">测点 B</div>
-        <div>{{ panelData().temp1B.toFixed(1) }}</div>
-        <div>{{ panelData().temp2B.toFixed(1) }}</div>
+        @for (data of panelData(); track $index) {
+          <div>{{ data.tempB.toFixed(1) }}</div>
+        }
     </div>
     
     <!-- Real-time charts -->
@@ -56,9 +61,12 @@
                 <div>
                     <div class="flex justify-between items-center text-xs text-cyan-200/80 mb-1">
                         <h4>最大压力 (MPa)</h4>
-                        <div>
-                          <span class="inline-block w-2 h-2 rounded-full mr-1" style="background-color: #34d399;"></span>轴1
-                          <span class="inline-block w-2 h-2 rounded-full mr-1 ml-2" style="background-color: #fb923c;"></span>轴2
+                        <div class="flex flex-wrap gap-x-2">
+                          @for(bearing of settings().bearings; track $index) {
+                            <span class="flex items-center">
+                              <span class="inline-block w-2 h-2 rounded-full mr-1" [style.background-color]="chartColors[$index % chartColors.length]"></span>轴{{$index + 1}}
+                            </span>
+                          }
                         </div>
                     </div>
                     <svg #pressureChart class="w-full h-24 bg-slate-800/50 rounded"></svg>
@@ -66,9 +74,12 @@
                 <div>
                     <div class="flex justify-between items-center text-xs text-cyan-200/80 mb-1">
                       <h4>最小厚度 (μm)</h4>
-                       <div>
-                          <span class="inline-block w-2 h-2 rounded-full mr-1" style="background-color: #34d399;"></span>轴1
-                          <span class="inline-block w-2 h-2 rounded-full mr-1 ml-2" style="background-color: #fb923c;"></span>轴2
+                       <div class="flex flex-wrap gap-x-2">
+                          @for(bearing of settings().bearings; track $index) {
+                            <span class="flex items-center">
+                              <span class="inline-block w-2 h-2 rounded-full mr-1" [style.background-color]="chartColors[$index % chartColors.length]"></span>轴{{$index + 1}}
+                            </span>
+                          }
                         </div>
                     </div>
                     <svg #thicknessChart class="w-full h-24 bg-slate-800/50 rounded"></svg>
@@ -76,9 +87,12 @@
                 <div>
                     <div class="flex justify-between items-center text-xs text-cyan-200/80 mb-1">
                       <h4>测点A温度 (°C)</h4>
-                       <div>
-                          <span class="inline-block w-2 h-2 rounded-full mr-1" style="background-color: #34d399;"></span>轴1
-                          <span class="inline-block w-2 h-2 rounded-full mr-1 ml-2" style="background-color: #fb923c;"></span>轴2
+                       <div class="flex flex-wrap gap-x-2">
+                          @for(bearing of settings().bearings; track $index) {
+                            <span class="flex items-center">
+                              <span class="inline-block w-2 h-2 rounded-full mr-1" [style.background-color]="chartColors[$index % chartColors.length]"></span>轴{{$index + 1}}
+                            </span>
+                          }
                         </div>
                     </div>
                     <svg #tempChart class="w-full h-24 bg-slate-800/50 rounded"></svg>
@@ -168,75 +182,75 @@
           <div class="p-4 bg-slate-800/50 rounded-lg border border-slate-700">
             <h3 class="font-bold mb-3 text-lg text-cyan-200">转子模型</h3>
             <div class="flex space-x-4 mb-3">
-              <label><input type="radio" name="rotor-type" value="default" [checked]="settingsForm().rotor.type === 'default'" (change)="updateSettings('rotor.type', 'default')"> 默认生成</label>
-              <label><input type="radio" name="rotor-type" value="stl" [checked]="settingsForm().rotor.type === 'stl'" (change)="updateSettings('rotor.type', 'stl')"> 导入STL</label>
+              <label><input type="radio" name="rotor-type" value="default" [checked]="settingsForm().rotor.type === 'default'" (change)="updateRotorType('default')"> 默认生成</label>
+              <label><input type="radio" name="rotor-type" value="stl" [checked]="settingsForm().rotor.type === 'stl'" (change)="updateRotorType('stl')"> 导入STL</label>
             </div>
             @if(settingsForm().rotor.type === 'stl') {
-              <input type="file" accept=".stl" (change)="onFileSelected($event)" class="w-full text-sm bg-slate-700 border border-slate-600 rounded p-1">
+              <input type="file" accept=".stl" (change)="onRotorFileSelected($event)" class="w-full text-sm bg-slate-700 border border-slate-600 rounded p-1">
             }
 
             <div class="grid grid-cols-2 gap-4 mt-4">
                 <div>
                     <h4 class="font-semibold mb-2">颜色</h4>
-                    <input type="color" [value]="settingsForm().rotor.color" (input)="updateSettings('rotor.color', $event)" class="w-full h-9 p-1 border border-slate-600 rounded bg-slate-800">
+                    <input type="color" [value]="settingsForm().rotor.color" (input)="updateRotorColor($event)" class="w-full h-9 p-1 border border-slate-600 rounded bg-slate-800">
                 </div>
             </div>
 
              <h4 class="font-semibold mt-4 mb-2">旋转轴</h4>
              <div class="grid grid-cols-4 gap-2 text-sm items-center">
                 <span class="font-semibold col-span-1">向量</span>
-                <input type="number" [value]="settingsForm().rotor.rotationAxis.x" (input)="updateSettings('rotor.rotationAxis.x', $event)" class="w-full p-1 border rounded bg-slate-800 border-slate-600 focus:ring-cyan-500 focus:border-cyan-500">
-                <input type="number" [value]="settingsForm().rotor.rotationAxis.y" (input)="updateSettings('rotor.rotationAxis.y', $event)" class="w-full p-1 border rounded bg-slate-800 border-slate-600 focus:ring-cyan-500 focus:border-cyan-500">
-                <input type="number" [value]="settingsForm().rotor.rotationAxis.z" (input)="updateSettings('rotor.rotationAxis.z', $event)" class="w-full p-1 border rounded bg-slate-800 border-slate-600 focus:ring-cyan-500 focus:border-cyan-500">
+                <input type="number" [value]="settingsForm().rotor.rotationAxis.x" (input)="updateRotorAxis('x', $event)" class="w-full p-1 border rounded bg-slate-800 border-slate-600 focus:ring-cyan-500 focus:border-cyan-500">
+                <input type="number" [value]="settingsForm().rotor.rotationAxis.y" (input)="updateRotorAxis('y', $event)" class="w-full p-1 border rounded bg-slate-800 border-slate-600 focus:ring-cyan-500 focus:border-cyan-500">
+                <input type="number" [value]="settingsForm().rotor.rotationAxis.z" (input)="updateRotorAxis('z', $event)" class="w-full p-1 border rounded bg-slate-800 border-slate-600 focus:ring-cyan-500 focus:border-cyan-500">
              </div>
           </div>
 
-          <div class="p-4 bg-slate-800/50 rounded-lg border border-slate-700">
-            <h3 class="font-bold mb-2 text-lg text-cyan-200">轴承 1</h3>
-            <div class="grid grid-cols-4 gap-2 text-sm items-center">
-              <span class="font-semibold col-span-1">位置</span>
-              <input type="number" [value]="settingsForm().bearing1.position.x" (input)="updateSettings('bearing1.position.x', $event)" class="w-full p-1 border rounded bg-slate-800 border-slate-600 focus:ring-cyan-500 focus:border-cyan-500">
-              <input type="number" [value]="settingsForm().bearing1.position.y" (input)="updateSettings('bearing1.position.y', $event)" class="w-full p-1 border rounded bg-slate-800 border-slate-600 focus:ring-cyan-500 focus:border-cyan-500">
-              <input type="number" [value]="settingsForm().bearing1.position.z" (input)="updateSettings('bearing1.position.z', $event)" class="w-full p-1 border rounded bg-slate-800 border-slate-600 focus:ring-cyan-500 focus:border-cyan-500">
+          @for (bearing of settingsForm().bearings; track i; let i = $index) {
+            <div class="p-4 bg-slate-800/50 rounded-lg border border-slate-700">
+              <div class="flex justify-between items-center mb-2">
+                <h3 class="font-bold text-lg text-cyan-200">轴承 {{ i + 1 }}</h3>
+                <button 
+                  (click)="removeBearing(i)" 
+                  [disabled]="settingsForm().bearings.length <= 1"
+                  class="px-2 py-1 text-xs font-semibold bg-red-600/80 text-white rounded hover:bg-red-500 disabled:bg-slate-600 disabled:cursor-not-allowed">
+                  删除
+                </button>
+              </div>
+              <div class="grid grid-cols-4 gap-2 text-sm items-center">
+                <span class="font-semibold col-span-1">位置</span>
+                <input type="number" [value]="bearing.position.x" (input)="updateBearingVector(i, 'position', 'x', $event)" class="w-full p-1 border rounded bg-slate-800 border-slate-600 focus:ring-cyan-500 focus:border-cyan-500">
+                <input type="number" [value]="bearing.position.y" (input)="updateBearingVector(i, 'position', 'y', $event)" class="w-full p-1 border rounded bg-slate-800 border-slate-600 focus:ring-cyan-500 focus:border-cyan-500">
+                <input type="number" [value]="bearing.position.z" (input)="updateBearingVector(i, 'position', 'z', $event)" class="w-full p-1 border rounded bg-slate-800 border-slate-600 focus:ring-cyan-500 focus:border-cyan-500">
 
-              <span class="font-semibold col-span-1">轴线</span>
-              <input type="number" [value]="settingsForm().bearing1.axis.x" (input)="updateSettings('bearing1.axis.x', $event)" class="w-full p-1 border rounded bg-slate-800 border-slate-600 focus:ring-cyan-500 focus:border-cyan-500">
-              <input type="number" [value]="settingsForm().bearing1.axis.y" (input)="updateSettings('bearing1.axis.y', $event)" class="w-full p-1 border rounded bg-slate-800 border-slate-600 focus:ring-cyan-500 focus:border-cyan-500">
-              <input type="number" [value]="settingsForm().bearing1.axis.z" (input)="updateSettings('bearing1.axis.z', $event)" class="w-full p-1 border rounded bg-slate-800 border-slate-600 focus:ring-cyan-500 focus:border-cyan-500">
+                <span class="font-semibold col-span-1">轴线</span>
+                <input type="number" [value]="bearing.axis.x" (input)="updateBearingVector(i, 'axis', 'x', $event)" class="w-full p-1 border rounded bg-slate-800 border-slate-600 focus:ring-cyan-500 focus:border-cyan-500">
+                <input type="number" [value]="bearing.axis.y" (input)="updateBearingVector(i, 'axis', 'y', $event)" class="w-full p-1 border rounded bg-slate-800 border-slate-600 focus:ring-cyan-500 focus:border-cyan-500">
+                <input type="number" [value]="bearing.axis.z" (input)="updateBearingVector(i, 'axis', 'z', $event)" class="w-full p-1 border rounded bg-slate-800 border-slate-600 focus:ring-cyan-500 focus:border-cyan-500">
 
-              <span class="font-semibold col-span-2">直径</span>
-              <input type="number" [value]="settingsForm().bearing1.diameter" (input)="updateSettings('bearing1.diameter', $event)" class="w-full p-1 border rounded col-span-2 bg-slate-800 border-slate-600 focus:ring-cyan-500 focus:border-cyan-500">
+                <span class="font-semibold col-span-2">直径</span>
+                <input type="number" [value]="bearing.diameter" (input)="updateBearingValue(i, 'diameter', $event)" class="w-full p-1 border rounded col-span-2 bg-slate-800 border-slate-600 focus:ring-cyan-500 focus:border-cyan-500">
 
-              <span class="font-semibold col-span-2">宽度</span>
-              <input type="number" [value]="settingsForm().bearing1.width" (input)="updateSettings('bearing1.width', $event)" class="w-full p-1 border rounded col-span-2 bg-slate-800 border-slate-600 focus:ring-cyan-500 focus:border-cyan-500">
+                <span class="font-semibold col-span-2">宽度</span>
+                <input type="number" [value]="bearing.width" (input)="updateBearingValue(i, 'width', $event)" class="w-full p-1 border rounded col-span-2 bg-slate-800 border-slate-600 focus:ring-cyan-500 focus:border-cyan-500">
 
-              <span class="font-semibold col-span-2">载荷方向角</span>
-              <input type="number" min="0" max="360" [value]="settingsForm().bearing1.loadAngle" (input)="updateSettings('bearing1.loadAngle', $event)" class="w-full p-1 border rounded col-span-2 bg-slate-800 border-slate-600 focus:ring-cyan-500 focus:border-cyan-500">
+                <span class="font-semibold col-span-2">载荷方向角</span>
+                <input type="number" min="0" max="360" [value]="bearing.loadAngle" (input)="updateBearingValue(i, 'loadAngle', $event)" class="w-full p-1 border rounded col-span-2 bg-slate-800 border-slate-600 focus:ring-cyan-500 focus:border-cyan-500">
+
+                <span class="font-semibold col-span-2">瓦块数量</span>
+                <input type="number" min="0" [value]="bearing.padCount" (input)="updateBearingValue(i, 'padCount', $event)" class="w-full p-1 border rounded col-span-2 bg-slate-800 border-slate-600 focus:ring-cyan-500 focus:border-cyan-500">
+
+                <span class="font-semibold col-span-2">瓦块包角 (°)</span>
+                <input type="number" min="0" max="360" [value]="bearing.padAngle" (input)="updateBearingValue(i, 'padAngle', $event)" class="w-full p-1 border rounded col-span-2 bg-slate-800 border-slate-600 focus:ring-cyan-500 focus:border-cyan-500">
+              </div>
             </div>
-          </div>
-
-          <div class="p-4 bg-slate-800/50 rounded-lg border border-slate-700">
-            <h3 class="font-bold mb-2 text-lg text-cyan-200">轴承 2</h3>
-            <div class="grid grid-cols-4 gap-2 text-sm items-center">
-               <span class="font-semibold col-span-1">位置</span>
-              <input type="number" [value]="settingsForm().bearing2.position.x" (input)="updateSettings('bearing2.position.x', $event)" class="w-full p-1 border rounded bg-slate-800 border-slate-600 focus:ring-cyan-500 focus:border-cyan-500">
-              <input type="number" [value]="settingsForm().bearing2.position.y" (input)="updateSettings('bearing2.position.y', $event)" class="w-full p-1 border rounded bg-slate-800 border-slate-600 focus:ring-cyan-500 focus:border-cyan-500">
-              <input type="number" [value]="settingsForm().bearing2.position.z" (input)="updateSettings('bearing2.position.z', $event)" class="w-full p-1 border rounded bg-slate-800 border-slate-600 focus:ring-cyan-500 focus:border-cyan-500">
-
-              <span class="font-semibold col-span-1">轴线</span>
-              <input type="number" [value]="settingsForm().bearing2.axis.x" (input)="updateSettings('bearing2.axis.x', $event)" class="w-full p-1 border rounded bg-slate-800 border-slate-600 focus:ring-cyan-500 focus:border-cyan-500">
-              <input type="number" [value]="settingsForm().bearing2.axis.y" (input)="updateSettings('bearing2.axis.y', $event)" class="w-full p-1 border rounded bg-slate-800 border-slate-600 focus:ring-cyan-500 focus:border-cyan-500">
-              <input type="number" [value]="settingsForm().bearing2.axis.z" (input)="updateSettings('bearing2.axis.z', $event)" class="w-full p-1 border rounded bg-slate-800 border-slate-600 focus:ring-cyan-500 focus:border-cyan-500">
-
-              <span class="font-semibold col-span-2">直径</span>
-              <input type="number" [value]="settingsForm().bearing2.diameter" (input)="updateSettings('bearing2.diameter', $event)" class="w-full p-1 border rounded col-span-2 bg-slate-800 border-slate-600 focus:ring-cyan-500 focus:border-cyan-500">
-
-              <span class="font-semibold col-span-2">宽度</span>
-              <input type="number" [value]="settingsForm().bearing2.width" (input)="updateSettings('bearing2.width', $event)" class="w-full p-1 border rounded col-span-2 bg-slate-800 border-slate-600 focus:ring-cyan-500 focus:border-cyan-500">
-
-              <span class="font-semibold col-span-2">载荷方向角</span>
-              <input type="number" min="0" max="360" [value]="settingsForm().bearing2.loadAngle" (input)="updateSettings('bearing2.loadAngle', $event)" class="w-full p-1 border rounded col-span-2 bg-slate-800 border-slate-600 focus:ring-cyan-500 focus:border-cyan-500">
-            </div>
+          }
+          <div class="p-2">
+             <button 
+                (click)="addBearing()" 
+                [disabled]="settingsForm().bearings.length >= 10"
+                class="w-full py-2 text-sm font-semibold bg-cyan-600/80 text-white rounded hover:bg-cyan-500 disabled:bg-slate-600 disabled:cursor-not-allowed">
+                添加轴承
+              </button>
           </div>
         </div>
 
