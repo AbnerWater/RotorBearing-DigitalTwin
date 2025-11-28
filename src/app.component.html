@@ -163,6 +163,9 @@
 
               <span class="font-semibold col-span-2">宽度</span>
               <input type="number" [value]="settingsForm().bearing1.width" (input)="updateSettings('bearing1.width', $event)" class="w-full p-1 border rounded col-span-2 bg-slate-800 border-slate-600 focus:ring-cyan-500 focus:border-cyan-500">
+
+              <span class="font-semibold col-span-2">载荷方向角</span>
+              <input type="number" min="0" max="360" [value]="settingsForm().bearing1.loadAngle" (input)="updateSettings('bearing1.loadAngle', $event)" class="w-full p-1 border rounded col-span-2 bg-slate-800 border-slate-600 focus:ring-cyan-500 focus:border-cyan-500">
             </div>
           </div>
 
@@ -184,6 +187,9 @@
 
               <span class="font-semibold col-span-2">宽度</span>
               <input type="number" [value]="settingsForm().bearing2.width" (input)="updateSettings('bearing2.width', $event)" class="w-full p-1 border rounded col-span-2 bg-slate-800 border-slate-600 focus:ring-cyan-500 focus:border-cyan-500">
+
+              <span class="font-semibold col-span-2">载荷方向角</span>
+              <input type="number" min="0" max="360" [value]="settingsForm().bearing2.loadAngle" (input)="updateSettings('bearing2.loadAngle', $event)" class="w-full p-1 border rounded col-span-2 bg-slate-800 border-slate-600 focus:ring-cyan-500 focus:border-cyan-500">
             </div>
           </div>
         </div>

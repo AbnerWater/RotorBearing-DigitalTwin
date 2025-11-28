@@ -11,6 +11,7 @@ interface BearingConfig {
     axis: { x: number, y: number, z: number };
     diameter: number;
     width: number;
+    loadAngle: number;
 }
 interface RotorConfig {
     type: 'default' | 'stl';
@@ -35,8 +36,8 @@ const serializeSettings = (settings: SceneSettings): string => {
 
 const getDefaultSettings = (): SceneSettings => ({
     rotor: { type: 'default', file: null, color: '#cccccc', rotationAxis: { x: 1, y: 0, z: 0 } },
-    bearing1: { position: { x: -8, y: 0, z: 0 }, axis: { x: 1, y: 0, z: 0 }, diameter: 1.0, width: 1.0 },
-    bearing2: { position: { x: 8, y: 0, z: 0 }, axis: { x: 1, y: 0, z: 0 }, diameter: 1.0, width: 1.0 }
+    bearing1: { position: { x: -8, y: 0, z: 0 }, axis: { x: 1, y: 0, z: 0 }, diameter: 1.0, width: 1.0, loadAngle: 0 },
+    bearing2: { position: { x: 8, y: 0, z: 0 }, axis: { x: 1, y: 0, z: 0 }, diameter: 1.0, width: 1.0, loadAngle: 0 }
 });
 
 
@@ -580,9 +581,10 @@ export class AppComponent implements AfterViewInit, OnDestroy {
   private updateBearingVisualizations(rpm: number, elapsedTime: number): void {
     if (!this.bearing1 || !this.bearing2) return;
     const type = this.displayType();
+    const settings = this.settings();
 
-    const physics1 = this.calculateBearingPhysics(this.bearing1, rpm, elapsedTime, false);
-    const physics2 = this.calculateBearingPhysics(this.bearing2, rpm, elapsedTime, true);
+    const physics1 = this.calculateBearingPhysics(this.bearing1, rpm, elapsedTime, false, settings.bearing1);
+    const physics2 = this.calculateBearingPhysics(this.bearing2, rpm, elapsedTime, true, settings.bearing2);
 
     this.panelData.set({
         maxPressure1: physics1.stats.maxPressure, maxPressure2: physics2.stats.maxPressure,
@@ -603,9 +605,10 @@ export class AppComponent implements AfterViewInit, OnDestroy {
     this.applyBearingVisuals(this.bearing2, physics2, this.legendRange());
   }
   
-  private calculateBearingPhysics(bearingGroup: any, rpm: number, elapsedTime: number, isBearing2: boolean) {
+  private calculateBearingPhysics(bearingGroup: any, rpm: number, elapsedTime: number, isBearing2: boolean, config: BearingConfig) {
     const geometry = bearingGroup.children[0].geometry;
     const { originalPositions, radius, width } = geometry.userData;
+    const loadAngleRad = config.loadAngle * Math.PI / 180;
     
     const speedFactor = Math.pow(Math.min(rpm / 4000, 1.0), 1.5); // Non-linear response
     const values = new Float32Array(originalPositions.count);
@@ -614,8 +617,11 @@ export class AppComponent implements AfterViewInit, OnDestroy {
     for (let i = 0; i < originalPositions.count; i++) {
         const ox = originalPositions.getX(i);
         const oy = originalPositions.getY(i);
+        const oz = originalPositions.getZ(i);
 
-        const cosTheta = ox / radius;
+        const theta = Math.atan2(oz, ox);
+        const cosTheta = Math.cos(theta - loadAngleRad);
+        
         const basePressureNorm = this.getPressure(cosTheta, oy, width);
         const shimmer = 1.0 + Math.sin(elapsedTime * 8 + i * 0.5) * 0.08 * (1 + speedFactor);
 
