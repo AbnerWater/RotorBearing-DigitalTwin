@@ -1,21 +1,62 @@
-<div class="relative w-full h-screen">
+<div class="relative w-full h-screen font-sans">
   <canvas #rendererCanvas id="renderer-canvas"></canvas>
 
-  <!-- Left Side: View Control Bar -->
-  <div class="absolute left-4 top-1/2 -translate-y-1/2 flex flex-col space-y-1 bg-white/70 backdrop-blur-sm shadow-lg rounded-lg p-2 text-gray-800">
-    <button title="Isometric" (click)="setView('iso')" class="w-10 h-10 font-mono text-sm font-bold rounded hover:bg-blue-200 focus:outline-none focus:ring-2 focus:ring-blue-500">Iso</button>
-    <button title="Front" (click)="setView('front')" class="w-10 h-10 font-mono text-sm font-bold rounded hover:bg-blue-200 focus:outline-none focus:ring-2 focus:ring-blue-500">Front</button>
-    <button title="Back" (click)="setView('back')" class="w-10 h-10 font-mono text-sm font-bold rounded hover:bg-blue-200 focus:outline-none focus:ring-2 focus:ring-blue-500">Back</button>
-    <button title="Top" (click)="setView('top')" class="w-10 h-10 font-mono text-sm font-bold rounded hover:bg-blue-200 focus:outline-none focus:ring-2 focus:ring-blue-500">Top</button>
-    <button title="Bottom" (click)="setView('bottom')" class="w-10 h-10 font-mono text-sm font-bold rounded hover:bg-blue-200 focus:outline-none focus:ring-2 focus:ring-blue-500">Bottom</button>
-    <button title="Left" (click)="setView('left')" class="w-10 h-10 font-mono text-sm font-bold rounded hover:bg-blue-200 focus:outline-none focus:ring-2 focus:ring-blue-500">Left</button>
-    <button title="Right" (click)="setView('right')" class="w-10 h-10 font-mono text-sm font-bold rounded hover:bg-blue-200 focus:outline-none focus:ring-2 focus:ring-blue-500">Right</button>
+  <!-- Top Left: System Status Panel -->
+  <div class="absolute top-4 left-4 text-gray-200 p-4 bg-slate-900/70 backdrop-blur-md border border-cyan-400/50 rounded-lg w-80 text-sm shadow-lg shadow-cyan-500/10">
+    <h2 class="text-xl font-bold text-cyan-300 border-b border-cyan-400/30 pb-2 mb-3">系统状态</h2>
+    
+    <div class="mb-4">
+      <label for="display-type" class="block font-semibold mb-1 text-cyan-200/80">轴承可视化</label>
+      <select id="display-type" class="w-full p-2 rounded-md bg-slate-800 border border-slate-600 text-gray-200 focus:ring-2 focus:ring-cyan-500 focus:outline-none" (change)="onDisplayTypeChange($event)">
+        <option value="pressure" selected>油膜压力</option>
+        <option value="thickness">油膜厚度</option>
+        <option value="temperature">油膜温度</option>
+      </select>
+    </div>
+
+    <div class="flex justify-between items-center mb-2">
+      <span class="font-semibold text-cyan-200/80">转子转速:</span>
+      <span class="font-mono text-base font-bold text-lime-300">{{ rotationSpeed().toFixed(0) }} RPM</span>
+    </div>
+
+    <div class="grid grid-cols-3 gap-x-2 text-center border-t border-cyan-400/30 pt-3 mt-3">
+        <div></div>
+        <div class="font-bold text-cyan-200">轴承 1</div>
+        <div class="font-bold text-cyan-200">轴承 2</div>
+
+        <div class="font-semibold text-left text-cyan-200/80">最大压力</div>
+        <div>{{ panelData().maxPressure1.toFixed(2) }}</div>
+        <div>{{ panelData().maxPressure2.toFixed(2) }}</div>
+        
+        <div class="font-semibold text-left text-cyan-200/80">最小厚度</div>
+        <div>{{ panelData().minThickness1.toFixed(1) }}</div>
+        <div>{{ panelData().minThickness2.toFixed(1) }}</div>
+
+        <div class="font-semibold text-left text-cyan-200/80">测点 A</div>
+        <div>{{ panelData().temp1A.toFixed(1) }}</div>
+        <div>{{ panelData().temp2A.toFixed(1) }}</div>
+
+        <div class="font-semibold text-left text-cyan-200/80">测点 B</div>
+        <div>{{ panelData().temp1B.toFixed(1) }}</div>
+        <div>{{ panelData().temp2B.toFixed(1) }}</div>
+    </div>
+  </div>
+
+  <!-- Top Right: View Control Bar -->
+  <div class="absolute top-4 right-4 flex flex-row space-x-1 bg-slate-900/70 backdrop-blur-md border border-cyan-400/50 shadow-lg shadow-cyan-500/10 rounded-lg p-2">
+    <button title="等轴测" (click)="setView('iso')" class="w-12 h-10 font-mono text-sm font-bold rounded text-cyan-300 hover:bg-cyan-400/20 focus:outline-none focus:ring-2 focus:ring-cyan-500">等轴测</button>
+    <button title="前视图" (click)="setView('front')" class="w-10 h-10 font-mono text-sm font-bold rounded text-cyan-300 hover:bg-cyan-400/20 focus:outline-none focus:ring-2 focus:ring-cyan-500">前</button>
+    <button title="后视图" (click)="setView('back')" class="w-10 h-10 font-mono text-sm font-bold rounded text-cyan-300 hover:bg-cyan-400/20 focus:outline-none focus:ring-2 focus:ring-cyan-500">后</button>
+    <button title="顶视图" (click)="setView('top')" class="w-10 h-10 font-mono text-sm font-bold rounded text-cyan-300 hover:bg-cyan-400/20 focus:outline-none focus:ring-2 focus:ring-cyan-500">顶</button>
+    <button title="底视图" (click)="setView('bottom')" class="w-10 h-10 font-mono text-sm font-bold rounded text-cyan-300 hover:bg-cyan-400/20 focus:outline-none focus:ring-2 focus:ring-cyan-500">底</button>
+    <button title="左视图" (click)="setView('left')" class="w-10 h-10 font-mono text-sm font-bold rounded text-cyan-300 hover:bg-cyan-400/20 focus:outline-none focus:ring-2 focus:ring-cyan-500">左</button>
+    <button title="右视图" (click)="setView('right')" class="w-10 h-10 font-mono text-sm font-bold rounded text-cyan-300 hover:bg-cyan-400/20 focus:outline-none focus:ring-2 focus:ring-cyan-500">右</button>
   </div>
 
   <!-- Right Side: Color Legend -->
-  <div class="absolute right-4 top-1/2 -translate-y-1/2 text-gray-800 text-sm p-4 bg-white/70 backdrop-blur-sm shadow-lg rounded-lg flex flex-col items-center">
+  <div class="absolute right-4 top-1/2 -translate-y-1/2 text-gray-200 text-sm p-4 bg-slate-900/70 backdrop-blur-md border border-cyan-400/50 shadow-lg shadow-cyan-500/10 rounded-lg flex flex-col items-center">
     <div class="flex items-center w-full">
-        <div class="w-6 h-6 bg-red-500 rounded-t-md"></div>
+        <div class="w-6 h-6 rounded-t-md" style="background-color: rgb(255, 0, 0);"></div>
         <span class="ml-2 font-semibold">{{ legendSteps()[0]?.value }}</span>
     </div>
     
@@ -27,63 +68,19 @@
     }
 
     <div class="flex items-center w-full">
-        <div class="w-6 h-6 bg-blue-500 rounded-b-md"></div>
+        <div class="w-6 h-6 rounded-b-md" style="background-color: rgb(0, 0, 255);"></div>
         <span class="ml-2 font-semibold">{{ legendSteps()[legendSteps().length - 1]?.value }}</span>
     </div>
 
-    <span class="font-bold mt-2 pt-2 border-t border-gray-300 w-full text-center">{{ legendData().unit }}</span>
-  </div>
-
-  <!-- Top Right: Data Panel -->
-  <div class="absolute top-4 right-4 text-gray-800 p-4 bg-white/70 backdrop-blur-sm shadow-xl rounded-lg w-80 text-sm">
-    <h2 class="text-xl font-bold text-gray-900 border-b pb-2 mb-3">System Status</h2>
-    
-    <!-- Visualization Control -->
-    <div class="mb-4">
-      <label for="display-type" class="block font-semibold mb-1 text-gray-700">Bearing Visualization</label>
-      <select id="display-type" class="w-full p-2 rounded-md bg-white/50 border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:outline-none" (change)="onDisplayTypeChange($event)">
-        <option value="pressure" selected>Oil Film Pressure</option>
-        <option value="thickness">Oil Film Thickness</option>
-        <option value="temperature">Oil Film Temperature</option>
-      </select>
-    </div>
-
-    <!-- Rotor Speed -->
-    <div class="flex justify-between items-center mb-2">
-      <span class="font-semibold text-gray-700">Rotor Speed:</span>
-      <span class="font-mono text-base font-bold text-blue-600">{{ rotationSpeed().toFixed(0) }} RPM</span>
-    </div>
-
-    <!-- Bearing Data Table -->
-    <div class="grid grid-cols-3 gap-x-2 text-center border-t pt-3 mt-3">
-        <div></div>
-        <div class="font-bold">Bearing 1</div>
-        <div class="font-bold">Bearing 2</div>
-
-        <div class="font-semibold text-left">Max Pressure</div>
-        <div>{{ panelData().maxPressure1.toFixed(2) }}</div>
-        <div>{{ panelData().maxPressure2.toFixed(2) }}</div>
-        
-        <div class="font-semibold text-left">Min Thickness</div>
-        <div>{{ panelData().minThickness1.toFixed(1) }}</div>
-        <div>{{ panelData().minThickness2.toFixed(1) }}</div>
-
-        <div class="font-semibold text-left">Temp A</div>
-        <div>{{ panelData().temp1A.toFixed(1) }}</div>
-        <div>{{ panelData().temp2A.toFixed(1) }}</div>
-
-        <div class="font-semibold text-left">Temp B</div>
-        <div>{{ panelData().temp1B.toFixed(1) }}</div>
-        <div>{{ panelData().temp2B.toFixed(1) }}</div>
-    </div>
+    <span class="font-bold text-cyan-300 mt-2 pt-2 border-t border-cyan-400/30 w-full text-center">{{ legendData().unit }}</span>
   </div>
 
   <!-- Bottom: Controls -->
-   <div class="absolute bottom-4 left-1/2 -translate-x-1/2 text-gray-800 p-3 bg-white/70 backdrop-blur-sm shadow-lg rounded-lg flex items-center space-x-4">
-    <button (click)="togglePlayPause()" class="w-24 p-2 font-semibold rounded-md" [class]="isPlaying() ? 'bg-yellow-500 hover:bg-yellow-600' : 'bg-green-500 hover:bg-green-600'">
-      {{ isPlaying() ? 'Pause' : 'Play' }}
+   <div class="absolute bottom-4 left-1/2 -translate-x-1/2 p-3 bg-slate-900/70 backdrop-blur-md border border-cyan-400/50 shadow-lg shadow-cyan-500/10 rounded-lg flex items-center space-x-4">
+    <button (click)="togglePlayPause()" class="w-24 p-2 font-semibold rounded-md text-slate-900" [class]="isPlaying() ? 'bg-yellow-400 hover:bg-yellow-500' : 'bg-lime-400 hover:bg-lime-500'">
+      {{ isPlaying() ? '暂停' : '播放' }}
     </button>
-    <label for="speed-slider" class="font-semibold">Rotation Speed</label>
+    <label for="speed-slider" class="font-semibold text-cyan-200">转速调节</label>
     <input 
       id="speed-slider" 
       type="range" 
@@ -91,122 +88,112 @@
       max="4000" 
       [value]="rotationSpeed()"
       (input)="onSpeedChange($event)"
-      class="w-64">
+      class="w-64 accent-cyan-400">
 
-    <select (change)="onDisplayStyleChange($event)" class="p-2 font-semibold rounded-md bg-white border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500">
-        <option value="shaded" selected>Shaded</option>
-        <option value="shaded-edges">Shaded + Edges</option>
-        <option value="wireframe">Wireframe</option>
-        <option value="transparent">Transparent</option>
+    <select (change)="onDisplayStyleChange($event)" class="p-2 font-semibold rounded-md bg-slate-800 border border-slate-600 text-gray-200 focus:outline-none focus:ring-2 focus:ring-cyan-500">
+        <option value="shaded" selected>着色</option>
+        <option value="shaded-edges">着色+边框</option>
+        <option value="wireframe">线框</option>
+        <option value="transparent">透明</option>
     </select>
     
-    <button (click)="toggleSettings()" class="w-24 p-2 font-semibold rounded-md bg-blue-500 hover:bg-blue-600 text-white">
-      Settings
+    <button (click)="toggleSettings()" class="w-24 p-2 font-semibold rounded-md bg-indigo-500 hover:bg-indigo-600 text-white">
+      设置
     </button>
   </div>
   
-  <!-- Hidden file input for opening projects -->
   <input type="file" #projectFileInput accept=".json" class="hidden" (change)="onProjectFileSelected($event)">
-
 
   <!-- Settings Panel -->
   @if(isSettingsVisible()) {
-    <!-- Backdrop -->
-    <div (click)="cancelSettings()" class="absolute top-0 left-0 w-full h-full bg-black/60 flex justify-end z-40">
-      <!-- Panel Container -->
-      <div (click)="$event.stopPropagation()" class="w-[420px] h-full bg-gray-100 flex flex-col text-gray-800 shadow-2xl">
+    <div (click)="cancelSettings()" class="absolute top-0 left-0 w-full h-full bg-black/70 flex justify-end z-40">
+      <div (click)="$event.stopPropagation()" class="w-[420px] h-full bg-slate-900 flex flex-col text-gray-200 shadow-2xl border-l-2 border-cyan-500">
         
-        <!-- Header -->
-        <div class="p-4 border-b border-gray-300">
-          <h2 class="text-2xl font-bold">Configuration</h2>
+        <div class="p-4 border-b border-cyan-400/30">
+          <h2 class="text-2xl font-bold text-cyan-300">参数配置</h2>
           <div class="flex space-x-2 mt-2">
-            <button (click)="newProject()" class="px-3 py-1 text-sm font-semibold bg-blue-500 text-white rounded hover:bg-blue-600">New</button>
-            <button (click)="openProject()" class="px-3 py-1 text-sm font-semibold bg-blue-500 text-white rounded hover:bg-blue-600">Open</button>
-            <button (click)="saveProject()" class="px-3 py-1 text-sm font-semibold bg-green-500 text-white rounded hover:bg-green-600">Save</button>
+            <button (click)="newProject()" class="px-3 py-1 text-sm font-semibold bg-indigo-500 text-white rounded hover:bg-indigo-600">新建</button>
+            <button (click)="openProject()" class="px-3 py-1 text-sm font-semibold bg-indigo-500 text-white rounded hover:bg-indigo-600">打开</button>
+            <button (click)="saveProject()" class="px-3 py-1 text-sm font-semibold bg-lime-500 text-slate-900 rounded hover:bg-lime-600">保存</button>
           </div>
         </div>
 
-        <!-- Scrollable Body -->
         <div class="flex-grow p-4 overflow-y-auto space-y-4">
-          <!-- Rotor Settings -->
-          <div class="p-4 bg-white rounded-lg shadow-inner">
-            <h3 class="font-bold mb-3 text-lg">Rotor Model</h3>
+          <div class="p-4 bg-slate-800/50 rounded-lg border border-slate-700">
+            <h3 class="font-bold mb-3 text-lg text-cyan-200">转子模型</h3>
             <div class="flex space-x-4 mb-3">
-              <label><input type="radio" name="rotor-type" value="default" [checked]="settingsForm().rotor.type === 'default'" (change)="updateSettings('rotor.type', 'default')"> Default</label>
-              <label><input type="radio" name="rotor-type" value="stl" [checked]="settingsForm().rotor.type === 'stl'" (change)="updateSettings('rotor.type', 'stl')"> Import STL</label>
+              <label><input type="radio" name="rotor-type" value="default" [checked]="settingsForm().rotor.type === 'default'" (change)="updateSettings('rotor.type', 'default')"> 默认生成</label>
+              <label><input type="radio" name="rotor-type" value="stl" [checked]="settingsForm().rotor.type === 'stl'" (change)="updateSettings('rotor.type', 'stl')"> 导入STL</label>
             </div>
             @if(settingsForm().rotor.type === 'stl') {
-              <input type="file" accept=".stl" (change)="onFileSelected($event)" class="w-full text-sm bg-white border rounded p-1">
+              <input type="file" accept=".stl" (change)="onFileSelected($event)" class="w-full text-sm bg-slate-700 border border-slate-600 rounded p-1">
             }
 
             <div class="grid grid-cols-2 gap-4 mt-4">
                 <div>
-                    <h4 class="font-semibold mb-2">Color</h4>
-                    <input type="color" [value]="settingsForm().rotor.color" (input)="updateSettings('rotor.color', $event)" class="w-full p-1 border rounded bg-white">
+                    <h4 class="font-semibold mb-2">颜色</h4>
+                    <input type="color" [value]="settingsForm().rotor.color" (input)="updateSettings('rotor.color', $event)" class="w-full h-9 p-1 border border-slate-600 rounded bg-slate-800">
                 </div>
             </div>
 
-             <h4 class="font-semibold mt-4 mb-2">Rotation Axis</h4>
+             <h4 class="font-semibold mt-4 mb-2">旋转轴</h4>
              <div class="grid grid-cols-4 gap-2 text-sm items-center">
-                <span class="font-semibold col-span-1">Vector</span>
-                <input type="number" [value]="settingsForm().rotor.rotationAxis.x" (input)="updateSettings('rotor.rotationAxis.x', $event)" class="w-full p-1 border rounded bg-white">
-                <input type="number" [value]="settingsForm().rotor.rotationAxis.y" (input)="updateSettings('rotor.rotationAxis.y', $event)" class="w-full p-1 border rounded bg-white">
-                <input type="number" [value]="settingsForm().rotor.rotationAxis.z" (input)="updateSettings('rotor.rotationAxis.z', $event)" class="w-full p-1 border rounded bg-white">
+                <span class="font-semibold col-span-1">向量</span>
+                <input type="number" [value]="settingsForm().rotor.rotationAxis.x" (input)="updateSettings('rotor.rotationAxis.x', $event)" class="w-full p-1 border rounded bg-slate-800 border-slate-600 focus:ring-cyan-500 focus:border-cyan-500">
+                <input type="number" [value]="settingsForm().rotor.rotationAxis.y" (input)="updateSettings('rotor.rotationAxis.y', $event)" class="w-full p-1 border rounded bg-slate-800 border-slate-600 focus:ring-cyan-500 focus:border-cyan-500">
+                <input type="number" [value]="settingsForm().rotor.rotationAxis.z" (input)="updateSettings('rotor.rotationAxis.z', $event)" class="w-full p-1 border rounded bg-slate-800 border-slate-600 focus:ring-cyan-500 focus:border-cyan-500">
              </div>
           </div>
 
-          <!-- Bearing 1 Settings -->
-          <div class="p-4 bg-white rounded-lg shadow-inner">
-            <h3 class="font-bold mb-2 text-lg">Bearing 1</h3>
+          <div class="p-4 bg-slate-800/50 rounded-lg border border-slate-700">
+            <h3 class="font-bold mb-2 text-lg text-cyan-200">轴承 1</h3>
             <div class="grid grid-cols-4 gap-2 text-sm items-center">
-              <span class="font-semibold col-span-1">Position</span>
-              <input type="number" [value]="settingsForm().bearing1.position.x" (input)="updateSettings('bearing1.position.x', $event)" class="w-full p-1 border rounded bg-white">
-              <input type="number" [value]="settingsForm().bearing1.position.y" (input)="updateSettings('bearing1.position.y', $event)" class="w-full p-1 border rounded bg-white">
-              <input type="number" [value]="settingsForm().bearing1.position.z" (input)="updateSettings('bearing1.position.z', $event)" class="w-full p-1 border rounded bg-white">
+              <span class="font-semibold col-span-1">位置</span>
+              <input type="number" [value]="settingsForm().bearing1.position.x" (input)="updateSettings('bearing1.position.x', $event)" class="w-full p-1 border rounded bg-slate-800 border-slate-600 focus:ring-cyan-500 focus:border-cyan-500">
+              <input type="number" [value]="settingsForm().bearing1.position.y" (input)="updateSettings('bearing1.position.y', $event)" class="w-full p-1 border rounded bg-slate-800 border-slate-600 focus:ring-cyan-500 focus:border-cyan-500">
+              <input type="number" [value]="settingsForm().bearing1.position.z" (input)="updateSettings('bearing1.position.z', $event)" class="w-full p-1 border rounded bg-slate-800 border-slate-600 focus:ring-cyan-500 focus:border-cyan-500">
 
-              <span class="font-semibold col-span-1">Axis</span>
-              <input type="number" [value]="settingsForm().bearing1.axis.x" (input)="updateSettings('bearing1.axis.x', $event)" class="w-full p-1 border rounded bg-white">
-              <input type="number" [value]="settingsForm().bearing1.axis.y" (input)="updateSettings('bearing1.axis.y', $event)" class="w-full p-1 border rounded bg-white">
-              <input type="number" [value]="settingsForm().bearing1.axis.z" (input)="updateSettings('bearing1.axis.z', $event)" class="w-full p-1 border rounded bg-white">
+              <span class="font-semibold col-span-1">轴线</span>
+              <input type="number" [value]="settingsForm().bearing1.axis.x" (input)="updateSettings('bearing1.axis.x', $event)" class="w-full p-1 border rounded bg-slate-800 border-slate-600 focus:ring-cyan-500 focus:border-cyan-500">
+              <input type="number" [value]="settingsForm().bearing1.axis.y" (input)="updateSettings('bearing1.axis.y', $event)" class="w-full p-1 border rounded bg-slate-800 border-slate-600 focus:ring-cyan-500 focus:border-cyan-500">
+              <input type="number" [value]="settingsForm().bearing1.axis.z" (input)="updateSettings('bearing1.axis.z', $event)" class="w-full p-1 border rounded bg-slate-800 border-slate-600 focus:ring-cyan-500 focus:border-cyan-500">
 
-              <span class="font-semibold col-span-2">Diameter</span>
-              <input type="number" [value]="settingsForm().bearing1.diameter" (input)="updateSettings('bearing1.diameter', $event)" class="w-full p-1 border rounded col-span-2 bg-white">
+              <span class="font-semibold col-span-2">直径</span>
+              <input type="number" [value]="settingsForm().bearing1.diameter" (input)="updateSettings('bearing1.diameter', $event)" class="w-full p-1 border rounded col-span-2 bg-slate-800 border-slate-600 focus:ring-cyan-500 focus:border-cyan-500">
 
-              <span class="font-semibold col-span-2">Width</span>
-              <input type="number" [value]="settingsForm().bearing1.width" (input)="updateSettings('bearing1.width', $event)" class="w-full p-1 border rounded col-span-2 bg-white">
+              <span class="font-semibold col-span-2">宽度</span>
+              <input type="number" [value]="settingsForm().bearing1.width" (input)="updateSettings('bearing1.width', $event)" class="w-full p-1 border rounded col-span-2 bg-slate-800 border-slate-600 focus:ring-cyan-500 focus:border-cyan-500">
             </div>
           </div>
 
-          <!-- Bearing 2 Settings -->
-          <div class="p-4 bg-white rounded-lg shadow-inner">
-            <h3 class="font-bold mb-2 text-lg">Bearing 2</h3>
+          <div class="p-4 bg-slate-800/50 rounded-lg border border-slate-700">
+            <h3 class="font-bold mb-2 text-lg text-cyan-200">轴承 2</h3>
             <div class="grid grid-cols-4 gap-2 text-sm items-center">
-               <span class="font-semibold col-span-1">Position</span>
-              <input type="number" [value]="settingsForm().bearing2.position.x" (input)="updateSettings('bearing2.position.x', $event)" class="w-full p-1 border rounded bg-white">
-              <input type="number" [value]="settingsForm().bearing2.position.y" (input)="updateSettings('bearing2.position.y', $event)" class="w-full p-1 border rounded bg-white">
-              <input type="number" [value]="settingsForm().bearing2.position.z" (input)="updateSettings('bearing2.position.z', $event)" class="w-full p-1 border rounded bg-white">
+               <span class="font-semibold col-span-1">位置</span>
+              <input type="number" [value]="settingsForm().bearing2.position.x" (input)="updateSettings('bearing2.position.x', $event)" class="w-full p-1 border rounded bg-slate-800 border-slate-600 focus:ring-cyan-500 focus:border-cyan-500">
+              <input type="number" [value]="settingsForm().bearing2.position.y" (input)="updateSettings('bearing2.position.y', $event)" class="w-full p-1 border rounded bg-slate-800 border-slate-600 focus:ring-cyan-500 focus:border-cyan-500">
+              <input type="number" [value]="settingsForm().bearing2.position.z" (input)="updateSettings('bearing2.position.z', $event)" class="w-full p-1 border rounded bg-slate-800 border-slate-600 focus:ring-cyan-500 focus:border-cyan-500">
 
-              <span class="font-semibold col-span-1">Axis</span>
-              <input type="number" [value]="settingsForm().bearing2.axis.x" (input)="updateSettings('bearing2.axis.x', $event)" class="w-full p-1 border rounded bg-white">
-              <input type="number" [value]="settingsForm().bearing2.axis.y" (input)="updateSettings('bearing2.axis.y', $event)" class="w-full p-1 border rounded bg-white">
-              <input type="number" [value]="settingsForm().bearing2.axis.z" (input)="updateSettings('bearing2.axis.z', $event)" class="w-full p-1 border rounded bg-white">
+              <span class="font-semibold col-span-1">轴线</span>
+              <input type="number" [value]="settingsForm().bearing2.axis.x" (input)="updateSettings('bearing2.axis.x', $event)" class="w-full p-1 border rounded bg-slate-800 border-slate-600 focus:ring-cyan-500 focus:border-cyan-500">
+              <input type="number" [value]="settingsForm().bearing2.axis.y" (input)="updateSettings('bearing2.axis.y', $event)" class="w-full p-1 border rounded bg-slate-800 border-slate-600 focus:ring-cyan-500 focus:border-cyan-500">
+              <input type="number" [value]="settingsForm().bearing2.axis.z" (input)="updateSettings('bearing2.axis.z', $event)" class="w-full p-1 border rounded bg-slate-800 border-slate-600 focus:ring-cyan-500 focus:border-cyan-500">
 
-              <span class="font-semibold col-span-2">Diameter</span>
-              <input type="number" [value]="settingsForm().bearing2.diameter" (input)="updateSettings('bearing2.diameter', $event)" class="w-full p-1 border rounded col-span-2 bg-white">
+              <span class="font-semibold col-span-2">直径</span>
+              <input type="number" [value]="settingsForm().bearing2.diameter" (input)="updateSettings('bearing2.diameter', $event)" class="w-full p-1 border rounded col-span-2 bg-slate-800 border-slate-600 focus:ring-cyan-500 focus:border-cyan-500">
 
-              <span class="font-semibold col-span-2">Width</span>
-              <input type="number" [value]="settingsForm().bearing2.width" (input)="updateSettings('bearing2.width', $event)" class="w-full p-1 border rounded col-span-2 bg-white">
+              <span class="font-semibold col-span-2">宽度</span>
+              <input type="number" [value]="settingsForm().bearing2.width" (input)="updateSettings('bearing2.width', $event)" class="w-full p-1 border rounded col-span-2 bg-slate-800 border-slate-600 focus:ring-cyan-500 focus:border-cyan-500">
             </div>
           </div>
         </div>
 
-        <!-- Footer -->
-        <div class="p-4 bg-gray-200 border-t border-gray-300 flex justify-end space-x-3">
-            <button (click)="cancelSettings()" class="px-6 py-2 font-bold text-gray-700 bg-white rounded-lg hover:bg-gray-50 border border-gray-300">
-              Cancel
+        <div class="p-4 bg-slate-900/80 border-t border-cyan-400/30 flex justify-end space-x-3">
+            <button (click)="cancelSettings()" class="px-6 py-2 font-bold text-gray-200 bg-slate-700 rounded-lg hover:bg-slate-600 border border-slate-500">
+              取消
             </button>
-            <button (click)="applySettings()" class="px-6 py-2 font-bold text-white bg-green-600 rounded-lg hover:bg-green-700">
-              Apply Changes
+            <button (click)="applySettings()" class="px-6 py-2 font-bold text-slate-900 bg-lime-500 rounded-lg hover:bg-lime-600">
+              应用更改
             </button>
         </div>
 

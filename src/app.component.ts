@@ -92,9 +92,9 @@ export class AppComponent implements AfterViewInit, OnDestroy {
 
   legendData = computed(() => {
     switch (this.displayType()) {
-      case 'pressure': return { unit: 'Pressure (MPa)' };
-      case 'thickness': return { unit: 'Thickness (μm)' };
-      case 'temperature': return { unit: 'Temperature (°C)' };
+      case 'pressure': return { unit: '压力 (MPa)' };
+      case 'thickness': return { unit: '厚度 (μm)' };
+      case 'temperature': return { unit: '温度 (°C)' };
     }
   });
 
@@ -144,7 +144,7 @@ export class AppComponent implements AfterViewInit, OnDestroy {
   }
   
   cancelSettings(): void {
-      if (this.isDirty() && !confirm('You have unsaved changes. Are you sure you want to discard them?')) {
+      if (this.isDirty() && !confirm('您有未保存的更改。确定要放弃吗?')) {
           return;
       }
       this.isSettingsVisible.set(false);
@@ -245,7 +245,7 @@ export class AppComponent implements AfterViewInit, OnDestroy {
   
   // --- Project Management ---
   private promptIfDirty(action: () => void): void {
-    if (this.isDirty() && !confirm('You have unsaved changes that will be lost. Are you sure you want to continue?')) {
+    if (this.isDirty() && !confirm('您有未保存的更改将会丢失。确定要继续吗?')) {
         return;
     }
     action();
@@ -285,13 +285,13 @@ export class AppComponent implements AfterViewInit, OnDestroy {
                 this.settingsForm.set(newSettings);
                 this.savedSettings.set(newSettings);
                 this.rebuildScene();
-                alert('Project loaded successfully. If you were using a custom STL model, please re-select the file.');
+                alert('项目加载成功。如果您使用的是自定义STL模型，请重新选择文件。');
             } else {
-                throw new Error('Invalid project file structure.');
+                throw new Error('无效的项目文件结构。');
             }
         } catch (e) {
-            console.error('Failed to load project:', e);
-            alert('Error: Could not read or parse the project file.');
+            console.error('项目加载失败:', e);
+            alert('错误：无法读取或解析项目文件。');
         }
     };
     reader.readAsText(file);
@@ -312,8 +312,8 @@ export class AppComponent implements AfterViewInit, OnDestroy {
         URL.revokeObjectURL(url);
         this.savedSettings.set(this.settingsForm()); // Mark current state as saved
     } catch (e) {
-        console.error('Failed to save project:', e);
-        alert('An error occurred while saving the project.');
+        console.error('项目保存失败:', e);
+        alert('保存项目时发生错误。');
     }
   }
 
@@ -331,7 +331,7 @@ export class AppComponent implements AfterViewInit, OnDestroy {
 
   private initThree(): void {
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(0xe0e0e0);
+    this.scene.background = new THREE.Color(0x0a0f1a); // Dark blue background
 
     const aspect = window.innerWidth / window.innerHeight;
     const frustumSize = 30;
@@ -348,7 +348,7 @@ export class AppComponent implements AfterViewInit, OnDestroy {
     this.controls = new THREE.OrbitControls(this.camera, this.renderer.domElement);
     this.controls.enableDamping = true;
     
-    this.scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1.0));
+    this.scene.add(new THREE.HemisphereLight(0xadd8e6, 0x444444, 1.5)); // Soft blueish light
     const directionalLight = new THREE.DirectionalLight(0xffffff, 1.5);
     directionalLight.position.set(10, 20, 15);
     directionalLight.castShadow = true;
@@ -403,7 +403,7 @@ export class AppComponent implements AfterViewInit, OnDestroy {
     } catch(e) {
         console.error("Failed to build scene:", e);
         if (settings.rotor.type === 'stl') {
-             alert("Error loading STL model. Please ensure it's a valid file and try again.");
+             alert("加载STL模型时出错。请确保文件有效并重试。");
         }
     }
   }
