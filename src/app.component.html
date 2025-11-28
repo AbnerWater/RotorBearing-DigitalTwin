@@ -186,7 +186,17 @@
               <label><input type="radio" name="rotor-type" value="stl" [checked]="settingsForm().rotor.type === 'stl'" (change)="updateRotorType('stl')"> 导入STL</label>
             </div>
             @if(settingsForm().rotor.type === 'stl') {
-              <input type="file" accept=".stl" (change)="onRotorFileSelected($event)" class="w-full text-sm bg-slate-700 border border-slate-600 rounded p-1">
+              <div>
+                <label class="relative cursor-pointer bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-2 px-4 rounded text-sm text-center w-full inline-block">
+                  <span>{{ settingsForm().rotor.fileName ? '更换STL文件' : '选择STL文件' }}</span>
+                  <input type="file" accept=".stl" (change)="onRotorFileSelected($event)" class="absolute top-0 left-0 w-full h-full opacity-0 cursor-pointer">
+                </label>
+                @if(settingsForm().rotor.fileName) {
+                  <div class="text-xs text-gray-400 mt-2 truncate" [title]="settingsForm().rotor.fileName">
+                    当前模型: {{ settingsForm().rotor.fileName }}
+                  </div>
+                }
+              </div>
             }
 
             <div class="grid grid-cols-2 gap-4 mt-4">

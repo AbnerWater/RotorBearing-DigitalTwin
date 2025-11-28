@@ -1,31 +1,31 @@
 import { Component, ElementRef, ViewChild, AfterViewInit, OnDestroy, ChangeDetectionStrategy, HostListener, signal, computed, effect } from '@angular/core';
 
-// FIX: Declare THREE as a variable and a namespace to allow both value access (new THREE.Scene())
-// and type access (private scene: THREE.Scene). Empty classes are sufficient to resolve type errors.
-// This resolves the "Cannot find namespace 'THREE'" errors.
+// FIX: Declare THREE as a variable for value access (e.g., new THREE.Scene()) and a namespace
+// for type access (e.g., private scene: THREE.Scene). Using interfaces inside the namespace
+// prevents value-space conflicts that cause "Duplicate identifier" errors.
 declare var THREE: any;
 declare namespace THREE {
-    class Scene {}
-    class OrthographicCamera {}
-    class WebGLRenderer {}
-    class OrbitControls {}
-    class Group {}
-    class Vector3 {}
-    class Quaternion {}
-    class Clock {}
-    class Color {}
-    class HemisphereLight {}
-    class DirectionalLight {}
-    class AxesHelper {}
-    class STLLoader {}
-    class MeshStandardMaterial {}
-    class CylinderGeometry {}
-    class Mesh {}
-    class LineBasicMaterial {}
-    class EdgesGeometry {}
-    class LineSegments {}
-    class Float32BufferAttribute {}
-    class MeshBasicMaterial {}
+    interface Scene {}
+    interface OrthographicCamera {}
+    interface WebGLRenderer {}
+    interface OrbitControls {}
+    interface Group {}
+    interface Vector3 {}
+    interface Quaternion {}
+    interface Clock {}
+    interface Color {}
+    interface HemisphereLight {}
+    interface DirectionalLight {}
+    interface AxesHelper {}
+    interface STLLoader {}
+    interface MeshStandardMaterial {}
+    interface CylinderGeometry {}
+    interface Mesh {}
+    interface LineBasicMaterial {}
+    interface EdgesGeometry {}
+    interface LineSegments {}
+    interface Float32BufferAttribute {}
+    interface MeshBasicMaterial {}
 }
 
 // Declare D3.js as it is loaded from a script tag.
@@ -45,7 +45,8 @@ interface BearingConfig {
 }
 interface RotorConfig {
     type: 'default' | 'stl';
-    file: File | null;
+    fileName: string | null;
+    stlData: string | null; // Base64 encoded STL content
     color: string;
     rotationAxis: { x: number, y: number, z: number };
 }
@@ -54,17 +55,13 @@ interface SceneSettings {
     bearings: BearingConfig[];
 }
 
-// Function to safely serialize settings for saving (omits File object)
+// Function to safely serialize settings for saving
 const serializeSettings = (settings: SceneSettings): string => {
-    const replacer = (key: string, value: any) => {
-        if (key === 'file') return undefined;
-        return value;
-    };
-    return JSON.stringify(settings, replacer, 2);
+    return JSON.stringify(settings, null, 2);
 };
 
 const getDefaultSettings = (): SceneSettings => ({
-    rotor: { type: 'default', file: null, color: '#cccccc', rotationAxis: { x: 1, y: 0, z: 0 } },
+    rotor: { type: 'default', fileName: null, stlData: null, color: '#cccccc', rotationAxis: { x: 1, y: 0, z: 0 } },
     bearings: [
       { position: { x: -8, y: 0, z: 0 }, axis: { x: 1, y: 0, z: 0 }, diameter: 1.0, width: 1.0, loadAngle: 0, padCount: 0, padAngle: 0 },
       { position: { x: 8, y: 0, z: 0 }, axis: { x: 1, y: 0, z: 0 }, diameter: 1.0, width: 1.0, loadAngle: 0, padCount: 0, padAngle: 0 }
@@ -241,16 +238,29 @@ export class AppComponent implements AfterViewInit, OnDestroy {
   updateRotorType(type: 'default' | 'stl'): void {
       this.settingsForm.update(current => ({
           ...current,
-          rotor: { ...current.rotor, type, file: type === 'default' ? null : current.rotor.file }
+          rotor: { 
+            ...current.rotor, 
+            type, 
+            fileName: type === 'default' ? null : current.rotor.fileName,
+            stlData: type === 'default' ? null : current.rotor.stlData
+          }
       }));
   }
 
   onRotorFileSelected(event: Event): void {
       const file = (event.target as HTMLInputElement).files?.[0] ?? null;
-      this.settingsForm.update(current => ({
-          ...current,
-          rotor: { ...current.rotor, file }
-      }));
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = (e) => {
+          const dataUrl = e.target?.result as string;
+          const base64Data = dataUrl.split(',')[1];
+          this.settingsForm.update(current => ({
+              ...current,
+              rotor: { ...current.rotor, fileName: file.name, stlData: base64Data }
+          }));
+      };
+      reader.readAsDataURL(file);
   }
 
   updateRotorColor(event: Event): void {
@@ -397,16 +407,22 @@ export class AppComponent implements AfterViewInit, OnDestroy {
     reader.onload = () => {
         try {
             const loadedSettings = JSON.parse(reader.result as string);
-            // Basic validation
+            const defaults = getDefaultSettings();
+
+            // Robustly merge settings
             if (loadedSettings.rotor && loadedSettings.bearings) {
-                const newSettings: SceneSettings = { ...getDefaultSettings(), ...loadedSettings };
-                newSettings.rotor.file = null; // File handle must be re-established by user
+                const newSettings: SceneSettings = {
+                    ...defaults,
+                    ...loadedSettings,
+                    rotor: { ...defaults.rotor, ...loadedSettings.rotor },
+                    bearings: loadedSettings.bearings.map((b: any) => ({ ...defaults.bearings[0], ...b }))
+                };
                 
                 this.settings.set(newSettings);
                 this.settingsForm.set(newSettings);
                 this.savedSettings.set(newSettings);
                 this.rebuildScene();
-                alert('项目加载成功。如果您使用的是自定义STL模型，请重新选择文件。');
+                alert('项目加载成功。');
             } else {
                 throw new Error('无效的项目文件结构。');
             }
@@ -669,40 +685,38 @@ export class AppComponent implements AfterViewInit, OnDestroy {
   }
   
   private async createRotor(config: RotorConfig): Promise<THREE.Group> {
-    if (config.type === 'stl' && config.file) {
+    if (config.type === 'stl' && config.stlData) {
         return new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = (event) => {
-                try {
-                    const contents = event.target?.result as ArrayBuffer;
-                    if (!contents) {
-                        return reject('File read error');
-                    }
-                    const loader = new THREE.STLLoader();
-                    const geometry = loader.parse(contents);
-                    geometry.center();
-
-                    const material = new THREE.MeshStandardMaterial({ color: config.color, metalness: 0.8, roughness: 0.2 });
-                    material.userData = { originalOpacity: 1.0 };
-                    const mesh = new THREE.Mesh(geometry, material);
-                    mesh.castShadow = true;
-                    mesh.userData.isStylable = true;
-                    
-                    const rotorGroup = new THREE.Group();
-                    rotorGroup.add(mesh);
-                    
-                    const lineMaterial = new THREE.LineBasicMaterial({ color: 0x000000, linewidth: 2 });
-                    const edges = new THREE.EdgesGeometry(geometry);
-                    const line = new THREE.LineSegments(edges, lineMaterial);
-                    rotorGroup.add(line);
-
-                    resolve(rotorGroup);
-                } catch (e) {
-                    reject(e);
+            try {
+                const raw = window.atob(config.stlData);
+                const bytes = new Uint8Array(raw.length);
+                for (let i = 0; i < raw.length; i++) {
+                    bytes[i] = raw.charCodeAt(i);
                 }
-            };
-            reader.onerror = (error) => reject(error);
-            reader.readAsArrayBuffer(config.file);
+                const contents = bytes.buffer;
+
+                const loader = new THREE.STLLoader();
+                const geometry = loader.parse(contents);
+                geometry.center();
+
+                const material = new THREE.MeshStandardMaterial({ color: config.color, metalness: 0.8, roughness: 0.2 });
+                material.userData = { originalOpacity: 1.0 };
+                const mesh = new THREE.Mesh(geometry, material);
+                mesh.castShadow = true;
+                mesh.userData.isStylable = true;
+                
+                const rotorGroup = new THREE.Group();
+                rotorGroup.add(mesh);
+                
+                const lineMaterial = new THREE.LineBasicMaterial({ color: 0x000000, linewidth: 2 });
+                const edges = new THREE.EdgesGeometry(geometry);
+                const line = new THREE.LineSegments(edges, lineMaterial);
+                rotorGroup.add(line);
+
+                resolve(rotorGroup);
+            } catch (e) {
+                reject(e);
+            }
         });
     } else {
         return Promise.resolve(this.createDefaultRotor(config));
