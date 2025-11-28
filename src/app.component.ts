@@ -1,18 +1,44 @@
 import { Component, ElementRef, ViewChild, AfterViewInit, OnDestroy, ChangeDetectionStrategy, HostListener, signal, computed } from '@angular/core';
 
-// Declare Three.js and OrbitControls as they are loaded from a script tag.
+// Declare Three.js and helpers as they are loaded from a script tag.
 declare const THREE: any;
 
 type DisplayType = 'pressure' | 'thickness' | 'temperature';
+type DisplayStyle = 'shaded' | 'shaded-edges' | 'wireframe' | 'transparent';
 
-interface BearingPhysics {
-    values: Float32Array;
-    stats: {
-        maxPressure: number;
-        minThickness: number;
-        maxTemp: number;
-    }
+interface BearingConfig {
+    position: { x: number, y: number, z: number };
+    axis: { x: number, y: number, z: number };
+    diameter: number;
+    width: number;
 }
+interface RotorConfig {
+    type: 'default' | 'stl';
+    file: File | null;
+    color: string;
+    rotationAxis: { x: number, y: number, z: number };
+}
+interface SceneSettings {
+    rotor: RotorConfig;
+    bearing1: BearingConfig;
+    bearing2: BearingConfig;
+}
+
+// Function to safely serialize settings for saving (omits File object)
+const serializeSettings = (settings: SceneSettings): string => {
+    const replacer = (key: string, value: any) => {
+        if (key === 'file') return undefined;
+        return value;
+    };
+    return JSON.stringify(settings, replacer, 2);
+};
+
+const getDefaultSettings = (): SceneSettings => ({
+    rotor: { type: 'default', file: null, color: '#cccccc', rotationAxis: { x: 1, y: 0, z: 0 } },
+    bearing1: { position: { x: -8, y: 0, z: 0 }, axis: { x: 1, y: 0, z: 0 }, diameter: 1.0, width: 1.0 },
+    bearing2: { position: { x: 8, y: 0, z: 0 }, axis: { x: 1, y: 0, z: 0 }, diameter: 1.0, width: 1.0 }
+});
+
 
 @Component({
   selector: 'app-root',
@@ -21,6 +47,8 @@ interface BearingPhysics {
 export class AppComponent implements AfterViewInit, OnDestroy {
   @ViewChild('rendererCanvas', { static: true })
   private rendererCanvas!: ElementRef<HTMLCanvasElement>;
+  @ViewChild('projectFileInput')
+  private projectFileInput!: ElementRef<HTMLInputElement>;
 
   private scene!: any;
   private camera!: any;
@@ -30,31 +58,43 @@ export class AppComponent implements AfterViewInit, OnDestroy {
   private bearing1!: any;
   private bearing2!: any;
   private originalRotorPosition!: any;
+  private axisScene!: any;
+  private axisCamera!: any;
 
   private animationFrameId: number | null = null;
   private clock = new THREE.Clock();
 
-
   // --- State Management with Signals ---
+  isPlaying = signal(true);
+  isSettingsVisible = signal(false);
   rotationSpeed = signal(100); // RPM
   displayType = signal<DisplayType>('pressure');
+  displayStyle = signal<DisplayStyle>('shaded');
+  
+  // Settings that drive the scene
+  settings = signal<SceneSettings>(getDefaultSettings());
+  
+  // A snapshot of the last saved/applied state to check for unsaved changes
+  savedSettings = signal<SceneSettings>(this.settings());
+
+  // Temporary state for the settings form
+  settingsForm = signal<SceneSettings>(this.settings());
+  
+  isDirty = computed(() => serializeSettings(this.settingsForm()) !== serializeSettings(this.savedSettings()));
+
   panelData = signal({
     maxPressure1: 0, maxPressure2: 0,
     minThickness1: 0, minThickness2: 0,
     temp1A: 0, temp1B: 0,
     temp2A: 0, temp2B: 0,
   });
-
   legendRange = signal({min: 0, max: 1});
 
   legendData = computed(() => {
     switch (this.displayType()) {
-      case 'pressure':
-        return { unit: 'Pressure (MPa)' };
-      case 'thickness':
-        return { unit: 'Thickness (μm)' };
-      case 'temperature':
-        return { unit: 'Temperature (°C)' };
+      case 'pressure': return { unit: 'Pressure (MPa)' };
+      case 'thickness': return { unit: 'Thickness (μm)' };
+      case 'temperature': return { unit: 'Temperature (°C)' };
     }
   });
 
@@ -77,9 +117,9 @@ export class AppComponent implements AfterViewInit, OnDestroy {
       return steps;
   });
 
-  ngAfterViewInit(): void {
+  async ngAfterViewInit(): Promise<void> {
     this.initThree();
-    this.createSceneContent();
+    await this.rebuildScene();
     this.animate();
   }
 
@@ -87,27 +127,200 @@ export class AppComponent implements AfterViewInit, OnDestroy {
     if (this.animationFrameId !== null) {
       cancelAnimationFrame(this.animationFrameId);
     }
-    if (this.renderer) {
-      this.renderer.dispose();
-    }
+    this.cleanupScene();
+    if (this.renderer) this.renderer.dispose();
     window.removeEventListener('resize', this.onWindowResize);
   }
 
+  // --- UI Event Handlers ---
+
+  togglePlayPause(): void {
+    this.isPlaying.set(!this.isPlaying());
+  }
+
+  toggleSettings(): void {
+    this.settingsForm.set(this.settings());
+    this.isSettingsVisible.set(true);
+  }
+  
+  cancelSettings(): void {
+      if (this.isDirty() && !confirm('You have unsaved changes. Are you sure you want to discard them?')) {
+          return;
+      }
+      this.isSettingsVisible.set(false);
+  }
+
   onSpeedChange(event: Event): void {
-    const value = (event.target as HTMLInputElement).value;
-    // Slider 0-100 maps to 0-4000 RPM
-    this.rotationSpeed.set(Number(value) * 40);
+    this.rotationSpeed.set(Number((event.target as HTMLInputElement).value));
   }
 
   onDisplayTypeChange(event: Event): void {
-    const value = (event.target as HTMLSelectElement).value as DisplayType;
-    this.displayType.set(value);
+    this.displayType.set((event.target as HTMLSelectElement).value as DisplayType);
+  }
+  
+  onDisplayStyleChange(event: Event): void {
+    this.displayStyle.set((event.target as HTMLSelectElement).value as DisplayStyle);
+    this.applyDisplayStyle();
+  }
+
+  onFileSelected(event: Event): void {
+      const file = (event.target as HTMLInputElement).files?.[0];
+      if (file) {
+          this.updateSettings('rotor.file', file);
+      }
+  }
+  
+  updateSettings(path: string, event: Event | string | File): void {
+      const value = (typeof event === 'object' && 'target' in event) 
+        ? (event.target as HTMLInputElement).value 
+        : event;
+
+      this.settingsForm.update(currentSettings => {
+          const newSettings = JSON.parse(serializeSettings(currentSettings));
+          
+          if (currentSettings.rotor.file) {
+            newSettings.rotor.file = currentSettings.rotor.file;
+          }
+
+          let obj: any = newSettings;
+          const keys = path.split('.');
+          const lastKey = keys.pop()!;
+          keys.forEach(key => { obj = obj[key]; });
+          
+          if (value instanceof File) {
+            obj[lastKey] = value;
+          } else {
+            obj[lastKey] = typeof value === 'string' && !isNaN(Number(value)) ? Number(value) : value;
+          }
+
+          return newSettings as SceneSettings;
+      });
+  }
+
+  applySettings(): void {
+      const newSettings = this.settingsForm();
+      this.settings.set(newSettings);
+      this.savedSettings.set(newSettings);
+      this.rebuildScene();
+      this.isSettingsVisible.set(false);
+  }
+
+  setView(view: string): void {
+    const distance = 35;
+    this.controls.target.set(0, 0, 0);
+
+    switch (view) {
+        case 'iso':
+            this.camera.position.set(distance / 1.732, distance / 1.732, distance / 1.732);
+            break;
+        case 'front':
+            this.camera.position.set(0, 0, distance);
+            break;
+        case 'back':
+            this.camera.position.set(0, 0, -distance);
+            break;
+        case 'top':
+            this.camera.position.set(0, distance, 0);
+            break;
+        case 'bottom':
+            this.camera.position.set(0, -distance, 0);
+            break;
+        case 'left':
+            this.camera.position.set(-distance, 0, 0);
+            break;
+        case 'right':
+            this.camera.position.set(distance, 0, 0);
+            break;
+    }
+    
+    if (view === 'top' || view === 'bottom') {
+        this.camera.up.set(0, 0, 1);
+    } else {
+        this.camera.up.set(0, 1, 0);
+    }
+    
+    this.camera.lookAt(0, 0, 0);
+    this.controls.update();
+  }
+  
+  // --- Project Management ---
+  private promptIfDirty(action: () => void): void {
+    if (this.isDirty() && !confirm('You have unsaved changes that will be lost. Are you sure you want to continue?')) {
+        return;
+    }
+    action();
+  }
+
+  newProject(): void {
+    this.promptIfDirty(() => {
+        const defaults = getDefaultSettings();
+        this.settings.set(defaults);
+        this.settingsForm.set(defaults);
+        this.savedSettings.set(defaults);
+        this.rebuildScene();
+    });
+  }
+
+  openProject(): void {
+    this.promptIfDirty(() => {
+        this.projectFileInput.nativeElement.click();
+    });
+  }
+
+  onProjectFileSelected(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = () => {
+        try {
+            const loadedSettings = JSON.parse(reader.result as string);
+            // Basic validation
+            if (loadedSettings.rotor && loadedSettings.bearing1) {
+                const newSettings: SceneSettings = { ...getDefaultSettings(), ...loadedSettings };
+                newSettings.rotor.file = null; // File handle must be re-established by user
+                
+                this.settings.set(newSettings);
+                this.settingsForm.set(newSettings);
+                this.savedSettings.set(newSettings);
+                this.rebuildScene();
+                alert('Project loaded successfully. If you were using a custom STL model, please re-select the file.');
+            } else {
+                throw new Error('Invalid project file structure.');
+            }
+        } catch (e) {
+            console.error('Failed to load project:', e);
+            alert('Error: Could not read or parse the project file.');
+        }
+    };
+    reader.readAsText(file);
+    input.value = ''; // Reset for next open
+  }
+  
+  saveProject(): void {
+    try {
+        const settingsJson = serializeSettings(this.settingsForm());
+        const blob = new Blob([settingsJson], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'rotor-project.json';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        this.savedSettings.set(this.settingsForm()); // Mark current state as saved
+    } catch (e) {
+        console.error('Failed to save project:', e);
+        alert('An error occurred while saving the project.');
+    }
   }
 
   @HostListener('window:resize', ['$event'])
   onWindowResize() {
     const aspect = window.innerWidth / window.innerHeight;
-    const frustumSize = 30; // Increased size to fit the longer rotor
+    const frustumSize = 30;
     this.camera.left = frustumSize * aspect / -2;
     this.camera.right = frustumSize * aspect / 2;
     this.camera.top = frustumSize / 2;
@@ -121,7 +334,7 @@ export class AppComponent implements AfterViewInit, OnDestroy {
     this.scene.background = new THREE.Color(0xe0e0e0);
 
     const aspect = window.innerWidth / window.innerHeight;
-    const frustumSize = 30; // Increased size
+    const frustumSize = 30;
     this.camera = new THREE.OrthographicCamera(frustumSize * aspect / -2, frustumSize * aspect / 2, frustumSize / 2, frustumSize / -2, 0.1, 1000);
     this.camera.position.set(15, 12, 22);
     this.camera.lookAt(this.scene.position);
@@ -130,62 +343,91 @@ export class AppComponent implements AfterViewInit, OnDestroy {
     this.renderer.setPixelRatio(window.devicePixelRatio);
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap; // Softer shadows
+    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
     this.controls = new THREE.OrbitControls(this.camera, this.renderer.domElement);
     this.controls.enableDamping = true;
-    this.controls.dampingFactor = 0.05;
-    this.controls.screenSpacePanning = true;
-  }
-  
-  private createSceneContent(): void {
-    // Enhanced Lighting
+    
     this.scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1.0));
     const directionalLight = new THREE.DirectionalLight(0xffffff, 1.5);
     directionalLight.position.set(10, 20, 15);
     directionalLight.castShadow = true;
-    // Configure shadow camera for better quality
     directionalLight.shadow.mapSize.width = 2048;
     directionalLight.shadow.mapSize.height = 2048;
-    directionalLight.shadow.camera.left = -20;
-    directionalLight.shadow.camera.right = 20;
-    directionalLight.shadow.camera.top = 20;
-    directionalLight.shadow.camera.bottom = -20;
     this.scene.add(directionalLight);
     
-    this.scene.add(new THREE.AxesHelper(5));
-    this.rotor = this.createRotor();
-    this.originalRotorPosition = this.rotor.position.clone();
-    this.scene.add(this.rotor);
-
-    const bearingPosition1 = new THREE.Vector3(-8, 0, 0);
-    const bearingPosition2 = new THREE.Vector3(8, 0, 0);
-
-    this.bearing1 = this.createBearing(bearingPosition1, 1);
-    this.scene.add(this.bearing1);
-    
-    this.bearing2 = this.createBearing(bearingPosition2, 1);
-    this.scene.add(this.bearing2);
+    // Axis indicator
+    this.axisScene = new THREE.Scene();
+    const axisHelper = new THREE.AxesHelper(5);
+    this.axisScene.add(axisHelper);
+    this.axisCamera = new THREE.OrthographicCamera(-5, 5, 5, -5, 0.1, 100);
   }
 
-  private createRotor(): any {
+  private cleanupScene(): void {
+      const toRemove = [this.rotor, this.bearing1, this.bearing2];
+      toRemove.forEach(obj => {
+          if (obj) {
+              this.scene.remove(obj);
+              obj.traverse((child: any) => {
+                  if (child.geometry) child.geometry.dispose();
+                  if (child.material) {
+                    if (Array.isArray(child.material)) {
+                        child.material.forEach((m: any) => m.dispose());
+                    } else {
+                        child.material.dispose();
+                    }
+                  }
+              });
+          }
+      });
+      this.rotor = null;
+      this.bearing1 = null;
+      this.bearing2 = null;
+  }
+
+  private async rebuildScene(): Promise<void> {
+    this.cleanupScene();
+    const settings = this.settings();
+    try {
+        this.rotor = await this.createRotor(settings.rotor);
+        this.originalRotorPosition = this.rotor.position.clone();
+        this.scene.add(this.rotor);
+
+        this.bearing1 = this.createBearing(settings.bearing1);
+        this.scene.add(this.bearing1);
+
+        this.bearing2 = this.createBearing(settings.bearing2);
+        this.scene.add(this.bearing2);
+
+        this.applyDisplayStyle();
+    } catch(e) {
+        console.error("Failed to build scene:", e);
+        if (settings.rotor.type === 'stl') {
+             alert("Error loading STL model. Please ensure it's a valid file and try again.");
+        }
+    }
+  }
+
+  private createDefaultRotor(config: RotorConfig): any {
     const rotorGroup = new THREE.Group();
-    const shaftMaterial = new THREE.MeshStandardMaterial({ color: 0xcccccc, metalness: 0.8, roughness: 0.2 });
-    
-    // Doubled shaft length
+    const shaftMaterial = new THREE.MeshStandardMaterial({ color: config.color, metalness: 0.8, roughness: 0.2 });
+    shaftMaterial.userData = { originalOpacity: 1.0 };
     const shaftGeometry = new THREE.CylinderGeometry(0.5, 0.5, 24, 32);
     const shaft = new THREE.Mesh(shaftGeometry, shaftMaterial);
     shaft.rotation.z = Math.PI / 2;
     shaft.castShadow = true;
+    shaft.userData.isStylable = true;
     rotorGroup.add(shaft);
 
-    const diskMaterial = new THREE.MeshStandardMaterial({ color: 0xaaaaaa, metalness: 0.7, roughness: 0.3 });
+    const diskMaterial = new THREE.MeshStandardMaterial({ color: config.color, metalness: 0.7, roughness: 0.3 });
+    diskMaterial.userData = { originalOpacity: 1.0 };
     const diskGeometry = new THREE.CylinderGeometry(2.5, 2.5, 1, 64);
     const disk = new THREE.Mesh(diskGeometry, diskMaterial);
     disk.rotation.z = Math.PI / 2;
     disk.castShadow = true;
+    disk.userData.isStylable = true;
     rotorGroup.add(disk);
-
+    
     const indicatorMaterial = new THREE.MeshStandardMaterial({ color: 0xff0000 });
     const indicatorGeometry = new THREE.CylinderGeometry(0.1, 0.1, 1.1, 16);
     const indicator = new THREE.Mesh(indicatorGeometry, indicatorMaterial);
@@ -194,112 +436,178 @@ export class AppComponent implements AfterViewInit, OnDestroy {
     indicator.castShadow = true;
     rotorGroup.add(indicator);
 
+    // Add edges for stylable parts
+    const lineMaterial = new THREE.LineBasicMaterial({ color: 0x000000, linewidth: 2 });
+    
+    const shaftEdges = new THREE.EdgesGeometry(shaft.geometry);
+    const shaftLine = new THREE.LineSegments(shaftEdges, lineMaterial);
+    shaftLine.rotation.z = Math.PI / 2;
+    rotorGroup.add(shaftLine);
+
+    const diskEdges = new THREE.EdgesGeometry(disk.geometry);
+    const diskLine = new THREE.LineSegments(diskEdges, lineMaterial);
+    diskLine.rotation.z = Math.PI / 2;
+    rotorGroup.add(diskLine);
+
     return rotorGroup;
   }
   
-  private createBearing(position: any, length: number): any {
+  private async createRotor(config: RotorConfig): Promise<any> {
+    if (config.type === 'stl' && config.file) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                try {
+                    const contents = event.target?.result as ArrayBuffer;
+                    if (!contents) {
+                        return reject('File read error');
+                    }
+                    const loader = new THREE.STLLoader();
+                    const geometry = loader.parse(contents);
+                    geometry.center();
+
+                    const material = new THREE.MeshStandardMaterial({ color: config.color, metalness: 0.8, roughness: 0.2 });
+                    material.userData = { originalOpacity: 1.0 };
+                    const mesh = new THREE.Mesh(geometry, material);
+                    mesh.castShadow = true;
+                    mesh.userData.isStylable = true;
+                    
+                    const rotorGroup = new THREE.Group();
+                    rotorGroup.add(mesh);
+                    
+                    const lineMaterial = new THREE.LineBasicMaterial({ color: 0x000000, linewidth: 2 });
+                    const edges = new THREE.EdgesGeometry(geometry);
+                    const line = new THREE.LineSegments(edges, lineMaterial);
+                    rotorGroup.add(line);
+
+                    resolve(rotorGroup);
+                } catch (e) {
+                    reject(e);
+                }
+            };
+            reader.onerror = (error) => reject(error);
+            reader.readAsArrayBuffer(config.file);
+        });
+    } else {
+        return Promise.resolve(this.createDefaultRotor(config));
+    }
+  }
+  
+  private createBearing(config: BearingConfig): any {
+    const { position, axis, diameter, width } = config;
     const bearingGroup = new THREE.Group();
-    const radius = 0.5;
+    const radius = diameter / 2;
     const radialSegments = 64;
     const heightSegments = 32;
 
-    const geometry = new THREE.CylinderGeometry(radius, radius, length, radialSegments, heightSegments, true);
-    geometry.userData.originalPositions = geometry.attributes.position.clone();
-    geometry.userData.length = length; // Store length for physics
+    const geometry = new THREE.CylinderGeometry(radius, radius, width, radialSegments, heightSegments, true);
+    geometry.userData = { 
+        originalPositions: geometry.attributes.position.clone(),
+        width: width,
+        radius: radius
+    };
     geometry.setAttribute('color', new THREE.Float32BufferAttribute(new Float32Array(geometry.attributes.position.count * 3), 3));
 
     const surfaceMaterial = new THREE.MeshStandardMaterial({ vertexColors: true, side: THREE.DoubleSide });
     const surfaceMesh = new THREE.Mesh(geometry, surfaceMaterial);
     bearingGroup.add(surfaceMesh);
 
-    const wireframeMaterial = new THREE.MeshBasicMaterial({ color: 0x333333, wireframe: true, transparent: true, opacity: 0.15 });
-    const wireframeMesh = new THREE.Mesh(geometry, wireframeMaterial);
+    const wireframeMesh = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({ color: 0x333333, wireframe: true, transparent: true, opacity: 0.15 }));
     bearingGroup.add(wireframeMesh);
     
     const housingRadius = radius + 0.3;
-    // Reverted housing to solid, transparent material
-    const housingMaterial = new THREE.MeshStandardMaterial({ 
-        color: 0xdaa520, 
-        transparent: true, 
-        opacity: 0.3,
-        metalness: 0.4,
-        roughness: 0.6
-    });
-    const housingGeometry = new THREE.CylinderGeometry(housingRadius, housingRadius, length, radialSegments, 1);
+    const housingMaterial = new THREE.MeshStandardMaterial({ color: 0xdaa520, transparent: true, opacity: 0.3, metalness: 0.4, roughness: 0.6 });
+    housingMaterial.userData = { originalOpacity: 0.3 };
+    const housingGeometry = new THREE.CylinderGeometry(housingRadius, housingRadius, width, radialSegments, 1);
     const bearingHousing = new THREE.Mesh(housingGeometry, housingMaterial);
+    bearingHousing.userData.isStylable = true;
     bearingGroup.add(bearingHousing);
 
-    bearingGroup.position.copy(position);
-    bearingGroup.rotation.z = Math.PI / 2;
+    const lineMaterial = new THREE.LineBasicMaterial({ color: 0x333333, linewidth: 1 });
+    const housingEdges = new THREE.EdgesGeometry(housingGeometry);
+    const housingLine = new THREE.LineSegments(housingEdges, lineMaterial);
+    bearingGroup.add(housingLine);
+
+    bearingGroup.position.set(position.x, position.y, position.z);
+    
+    const defaultAxis = new THREE.Vector3(0, 1, 0); 
+    const targetAxis = new THREE.Vector3(axis.x, axis.y, axis.z).normalize();
+    const quaternion = new THREE.Quaternion().setFromUnitVectors(defaultAxis, targetAxis);
+    bearingGroup.quaternion.copy(quaternion);
+    
     return bearingGroup;
   }
 
-  private createPedestal(position: any): any {
-      const pedestalGroup = new THREE.Group();
-      const pedestalHeight = 3.2; // Height from bearing bottom to ground plane
-      const pedestalWidth = 2;   // Wider base
-      const pedestalDepth = 2;   // Wider base
-      
-      const pedestalGeometry = new THREE.BoxGeometry(pedestalWidth, pedestalHeight, pedestalDepth);
-      const pedestalMaterial = new THREE.MeshBasicMaterial({ color: 0x666666, wireframe: true, transparent: true, opacity: 0.5 });
-      const pedestal = new THREE.Mesh(pedestalGeometry, pedestalMaterial);
-      
-      // Position the pedestal below the bearing
-      pedestal.position.set(position.x, -0.8 - (pedestalHeight / 2), position.z);
-      
-      pedestalGroup.add(pedestal);
-      return pedestalGroup;
+  private applyDisplayStyle(): void {
+    const style = this.displayStyle();
+    const objectsToStyle = [this.rotor, this.bearing1, this.bearing2];
+
+    objectsToStyle.forEach(obj => {
+        if (!obj) return;
+        
+        obj.traverse((child: any) => {
+            if (child.isMesh && child.userData.isStylable) {
+                const material = child.material;
+                if (material.userData.originalOpacity === undefined) {
+                    material.userData.originalOpacity = material.opacity;
+                }
+                
+                material.wireframe = style === 'wireframe';
+
+                switch(style) {
+                    case 'shaded':
+                    case 'shaded-edges':
+                        material.transparent = material.userData.originalOpacity < 1.0;
+                        material.opacity = material.userData.originalOpacity;
+                        break;
+                    case 'wireframe':
+                        material.transparent = true;
+                        material.opacity = 0.25;
+                        break;
+                    case 'transparent':
+                        material.transparent = true;
+                        material.opacity = 0.5;
+                        break;
+                }
+            }
+            if (child.isLineSegments) {
+                child.visible = (style === 'shaded-edges');
+            }
+        });
+    });
   }
 
   private updateBearingVisualizations(rpm: number, elapsedTime: number): void {
+    if (!this.bearing1 || !this.bearing2) return;
     const type = this.displayType();
 
-    // Pass 1: Calculate physics for both bearings
     const physics1 = this.calculateBearingPhysics(this.bearing1, rpm, elapsedTime, false);
     const physics2 = this.calculateBearingPhysics(this.bearing2, rpm, elapsedTime, true);
 
-    // Update data panel
     this.panelData.set({
-        maxPressure1: physics1.stats.maxPressure,
-        maxPressure2: physics2.stats.maxPressure,
-        minThickness1: physics1.stats.minThickness,
-        minThickness2: physics2.stats.minThickness,
-        temp1A: physics1.stats.maxTemp - 5 + Math.random(),
-        temp1B: physics1.stats.maxTemp - 2 + Math.random(),
-        temp2A: physics2.stats.maxTemp - 5 + Math.random(),
-        temp2B: physics2.stats.maxTemp - 2 + Math.random(),
+        maxPressure1: physics1.stats.maxPressure, maxPressure2: physics2.stats.maxPressure,
+        minThickness1: physics1.stats.minThickness, minThickness2: physics2.stats.minThickness,
+        temp1A: physics1.stats.maxTemp - 5 + Math.random(), temp1B: physics1.stats.maxTemp - 2 + Math.random(),
+        temp2A: physics2.stats.maxTemp - 5 + Math.random(), temp2B: physics2.stats.maxTemp - 2 + Math.random(),
     });
     
-    // Determine global min/max for the legend
     let min = Infinity, max = -Infinity;
     switch (type) {
-        case 'pressure':
-            min = 0; // Pressure starts at 0
-            max = Math.max(physics1.stats.maxPressure, physics2.stats.maxPressure);
-            break;
-        case 'thickness':
-            min = Math.min(physics1.stats.minThickness, physics2.stats.minThickness);
-            max = Math.max(50 + (rpm / 4000) * 40, 55); // Estimate max thickness based on speed
-            break;
-        case 'temperature':
-            min = 40; // Base temperature
-            max = Math.max(physics1.stats.maxTemp, physics2.stats.maxTemp);
-            break;
+        case 'pressure': min = 0; max = Math.max(physics1.stats.maxPressure, physics2.stats.maxPressure); break;
+        case 'thickness': min = Math.min(physics1.stats.minThickness, physics2.stats.minThickness); max = Math.max(50 + (rpm / 4000) * 40, 55); break;
+        case 'temperature': min = 40; max = Math.max(physics1.stats.maxTemp, physics2.stats.maxTemp); break;
     }
     this.legendRange.set({ min: min, max: max });
 
-    // Pass 2: Apply visuals using the calculated physics and global range
     this.applyBearingVisuals(this.bearing1, physics1, this.legendRange());
     this.applyBearingVisuals(this.bearing2, physics2, this.legendRange());
   }
   
   private calculateBearingPhysics(bearingGroup: any, rpm: number, elapsedTime: number, isBearing2: boolean) {
     const geometry = bearingGroup.children[0].geometry;
-    const originalPositions = geometry.userData.originalPositions;
-    const radius = 0.5;
-    const length = geometry.userData.length;
+    const { originalPositions, radius, width } = geometry.userData;
     
-    const speedFactor = Math.min(rpm / 4000, 1.0);
+    const speedFactor = Math.pow(Math.min(rpm / 4000, 1.0), 1.5); // Non-linear response
     const values = new Float32Array(originalPositions.count);
     let maxPressure = 0, minThickness = Infinity, maxTemp = 0;
 
@@ -308,13 +616,12 @@ export class AppComponent implements AfterViewInit, OnDestroy {
         const oy = originalPositions.getY(i);
 
         const cosTheta = ox / radius;
-        const basePressureNorm = this.getPressure(cosTheta, oy, length);
-        
-        const shimmer = 1.0 + Math.sin(elapsedTime * 5 + i * 0.5) * 0.05 * (1 + speedFactor);
+        const basePressureNorm = this.getPressure(cosTheta, oy, width);
+        const shimmer = 1.0 + Math.sin(elapsedTime * 8 + i * 0.5) * 0.08 * (1 + speedFactor);
 
-        const pressure = basePressureNorm * (1.5 + speedFactor * 10.0) * (isBearing2 ? 1.05 : 1.0) * shimmer;
-        const thickness = 5.0 + (1 - basePressureNorm) * 45.0 + speedFactor * 40.0 * shimmer;
-        const temperature = 40.0 + basePressureNorm * 35.0 + speedFactor * 60.0 * shimmer;
+        const pressure = basePressureNorm * (2.0 + speedFactor * 15.0) * (isBearing2 ? 1.05 : 1.0) * shimmer;
+        const thickness = (5.0 + (1 - basePressureNorm) * 50.0) + (speedFactor * 60.0) * shimmer;
+        const temperature = 40.0 + (basePressureNorm * 40.0) + (speedFactor * 75.0) * shimmer;
 
         if (pressure > maxPressure) maxPressure = pressure;
         if (thickness < minThickness) minThickness = thickness;
@@ -332,9 +639,9 @@ export class AppComponent implements AfterViewInit, OnDestroy {
   private applyBearingVisuals(bearingGroup: any, physics: { values: Float32Array }, range: { min: number; max: number }) {
     const surfaceMesh = bearingGroup.children[0];
     const geometry = surfaceMesh.geometry;
+    const { originalPositions } = geometry.userData;
     const positions = geometry.attributes.position;
     const colors = geometry.attributes.color;
-    const originalPositions = geometry.userData.originalPositions;
     const color = new THREE.Color();
     const type = this.displayType();
     
@@ -344,9 +651,9 @@ export class AppComponent implements AfterViewInit, OnDestroy {
         
         let displacementFactor = 0;
         switch(type) {
-            case 'pressure': displacementFactor = 0.375; break;
-            case 'thickness': displacementFactor = 0.1; break;
-            case 'temperature': displacementFactor = 0.2; break;
+            case 'pressure': displacementFactor = 0.5; break;
+            case 'thickness': displacementFactor = 0.15; break;
+            case 'temperature': displacementFactor = 0.25; break;
         }
 
         const ox = originalPositions.getX(i);
@@ -375,20 +682,37 @@ export class AppComponent implements AfterViewInit, OnDestroy {
     this.animationFrameId = requestAnimationFrame(() => this.animate());
     this.controls.update();
     
-    const elapsedTime = this.clock.getElapsedTime();
-    const rpm = this.rotationSpeed();
-    const visualRotationSpeed = rpm * 0.00005;
+    if (this.isPlaying()) {
+        const elapsedTime = this.clock.getElapsedTime();
+        const rpm = this.rotationSpeed();
+        const visualRotationSpeed = rpm * 0.0001;
 
-    if (this.rotor) {
-        this.rotor.rotation.x += visualRotationSpeed;
+        if (this.rotor) {
+            const axisSettings = this.settings().rotor.rotationAxis;
+            const rotationAxis = new THREE.Vector3(axisSettings.x, axisSettings.y, axisSettings.z).normalize();
+            this.rotor.rotateOnAxis(rotationAxis, visualRotationSpeed);
+            
+            const vibration = (rpm / 4000) * 0.05;
+            this.rotor.position.y = this.originalRotorPosition.y + (Math.random() - 0.5) * vibration;
+            this.rotor.position.z = this.originalRotorPosition.z + (Math.random() - 0.5) * vibration;
+        }
         
-        const vibration = (rpm / 4000) * 0.05;
-        this.rotor.position.y = this.originalRotorPosition.y + (Math.random() - 0.5) * vibration;
-        this.rotor.position.z = this.originalRotorPosition.z + (Math.random() - 0.5) * vibration;
+        this.updateBearingVisualizations(rpm, elapsedTime);
     }
-    
-    this.updateBearingVisualizations(rpm, elapsedTime);
 
+    this.renderer.autoClear = false;
+    this.renderer.clear();
     this.renderer.render(this.scene, this.camera);
+    
+    // Render axis helper
+    const axisViewportSize = 150;
+    this.renderer.clearDepth(); 
+    this.renderer.setViewport(0, 0, axisViewportSize, axisViewportSize);
+    this.axisCamera.position.copy(this.camera.position);
+    this.axisCamera.quaternion.copy(this.camera.quaternion);
+    this.axisCamera.zoom = this.camera.zoom * 2;
+    this.axisCamera.updateProjectionMatrix();
+    this.renderer.render(this.axisScene, this.axisCamera);
+    this.renderer.setViewport(0, 0, window.innerWidth, window.innerHeight);
   }
 }

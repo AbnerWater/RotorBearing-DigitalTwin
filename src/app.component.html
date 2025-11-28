@@ -1,8 +1,19 @@
 <div class="relative w-full h-screen">
   <canvas #rendererCanvas id="renderer-canvas"></canvas>
 
-  <!-- Left Side: Color Legend -->
-  <div class="absolute left-4 top-1/2 -translate-y-1/2 text-gray-800 text-sm p-4 bg-white/70 backdrop-blur-sm shadow-lg rounded-lg flex flex-col items-center">
+  <!-- Left Side: View Control Bar -->
+  <div class="absolute left-4 top-1/2 -translate-y-1/2 flex flex-col space-y-1 bg-white/70 backdrop-blur-sm shadow-lg rounded-lg p-2 text-gray-800">
+    <button title="Isometric" (click)="setView('iso')" class="w-10 h-10 font-mono text-sm font-bold rounded hover:bg-blue-200 focus:outline-none focus:ring-2 focus:ring-blue-500">Iso</button>
+    <button title="Front" (click)="setView('front')" class="w-10 h-10 font-mono text-sm font-bold rounded hover:bg-blue-200 focus:outline-none focus:ring-2 focus:ring-blue-500">Front</button>
+    <button title="Back" (click)="setView('back')" class="w-10 h-10 font-mono text-sm font-bold rounded hover:bg-blue-200 focus:outline-none focus:ring-2 focus:ring-blue-500">Back</button>
+    <button title="Top" (click)="setView('top')" class="w-10 h-10 font-mono text-sm font-bold rounded hover:bg-blue-200 focus:outline-none focus:ring-2 focus:ring-blue-500">Top</button>
+    <button title="Bottom" (click)="setView('bottom')" class="w-10 h-10 font-mono text-sm font-bold rounded hover:bg-blue-200 focus:outline-none focus:ring-2 focus:ring-blue-500">Bottom</button>
+    <button title="Left" (click)="setView('left')" class="w-10 h-10 font-mono text-sm font-bold rounded hover:bg-blue-200 focus:outline-none focus:ring-2 focus:ring-blue-500">Left</button>
+    <button title="Right" (click)="setView('right')" class="w-10 h-10 font-mono text-sm font-bold rounded hover:bg-blue-200 focus:outline-none focus:ring-2 focus:ring-blue-500">Right</button>
+  </div>
+
+  <!-- Right Side: Color Legend -->
+  <div class="absolute right-4 top-1/2 -translate-y-1/2 text-gray-800 text-sm p-4 bg-white/70 backdrop-blur-sm shadow-lg rounded-lg flex flex-col items-center">
     <div class="flex items-center w-full">
         <div class="w-6 h-6 bg-red-500 rounded-t-md"></div>
         <span class="ml-2 font-semibold">{{ legendSteps()[0]?.value }}</span>
@@ -67,17 +78,139 @@
     </div>
   </div>
 
-  <!-- Bottom: Speed Control -->
+  <!-- Bottom: Controls -->
    <div class="absolute bottom-4 left-1/2 -translate-x-1/2 text-gray-800 p-3 bg-white/70 backdrop-blur-sm shadow-lg rounded-lg flex items-center space-x-4">
+    <button (click)="togglePlayPause()" class="w-24 p-2 font-semibold rounded-md" [class]="isPlaying() ? 'bg-yellow-500 hover:bg-yellow-600' : 'bg-green-500 hover:bg-green-600'">
+      {{ isPlaying() ? 'Pause' : 'Play' }}
+    </button>
     <label for="speed-slider" class="font-semibold">Rotation Speed</label>
     <input 
       id="speed-slider" 
       type="range" 
       min="0" 
-      max="100" 
-      [value]="rotationSpeed() / 40"
+      max="4000" 
+      [value]="rotationSpeed()"
       (input)="onSpeedChange($event)"
       class="w-64">
-  </div>
 
+    <select (change)="onDisplayStyleChange($event)" class="p-2 font-semibold rounded-md bg-white border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500">
+        <option value="shaded" selected>Shaded</option>
+        <option value="shaded-edges">Shaded + Edges</option>
+        <option value="wireframe">Wireframe</option>
+        <option value="transparent">Transparent</option>
+    </select>
+    
+    <button (click)="toggleSettings()" class="w-24 p-2 font-semibold rounded-md bg-blue-500 hover:bg-blue-600 text-white">
+      Settings
+    </button>
+  </div>
+  
+  <!-- Hidden file input for opening projects -->
+  <input type="file" #projectFileInput accept=".json" class="hidden" (change)="onProjectFileSelected($event)">
+
+
+  <!-- Settings Panel -->
+  @if(isSettingsVisible()) {
+    <!-- Backdrop -->
+    <div (click)="cancelSettings()" class="absolute top-0 left-0 w-full h-full bg-black/60 flex justify-end z-40">
+      <!-- Panel Container -->
+      <div (click)="$event.stopPropagation()" class="w-[420px] h-full bg-gray-100 flex flex-col text-gray-800 shadow-2xl">
+        
+        <!-- Header -->
+        <div class="p-4 border-b border-gray-300">
+          <h2 class="text-2xl font-bold">Configuration</h2>
+          <div class="flex space-x-2 mt-2">
+            <button (click)="newProject()" class="px-3 py-1 text-sm font-semibold bg-blue-500 text-white rounded hover:bg-blue-600">New</button>
+            <button (click)="openProject()" class="px-3 py-1 text-sm font-semibold bg-blue-500 text-white rounded hover:bg-blue-600">Open</button>
+            <button (click)="saveProject()" class="px-3 py-1 text-sm font-semibold bg-green-500 text-white rounded hover:bg-green-600">Save</button>
+          </div>
+        </div>
+
+        <!-- Scrollable Body -->
+        <div class="flex-grow p-4 overflow-y-auto space-y-4">
+          <!-- Rotor Settings -->
+          <div class="p-4 bg-white rounded-lg shadow-inner">
+            <h3 class="font-bold mb-3 text-lg">Rotor Model</h3>
+            <div class="flex space-x-4 mb-3">
+              <label><input type="radio" name="rotor-type" value="default" [checked]="settingsForm().rotor.type === 'default'" (change)="updateSettings('rotor.type', 'default')"> Default</label>
+              <label><input type="radio" name="rotor-type" value="stl" [checked]="settingsForm().rotor.type === 'stl'" (change)="updateSettings('rotor.type', 'stl')"> Import STL</label>
+            </div>
+            @if(settingsForm().rotor.type === 'stl') {
+              <input type="file" accept=".stl" (change)="onFileSelected($event)" class="w-full text-sm bg-white border rounded p-1">
+            }
+
+            <div class="grid grid-cols-2 gap-4 mt-4">
+                <div>
+                    <h4 class="font-semibold mb-2">Color</h4>
+                    <input type="color" [value]="settingsForm().rotor.color" (input)="updateSettings('rotor.color', $event)" class="w-full p-1 border rounded bg-white">
+                </div>
+            </div>
+
+             <h4 class="font-semibold mt-4 mb-2">Rotation Axis</h4>
+             <div class="grid grid-cols-4 gap-2 text-sm items-center">
+                <span class="font-semibold col-span-1">Vector</span>
+                <input type="number" [value]="settingsForm().rotor.rotationAxis.x" (input)="updateSettings('rotor.rotationAxis.x', $event)" class="w-full p-1 border rounded bg-white">
+                <input type="number" [value]="settingsForm().rotor.rotationAxis.y" (input)="updateSettings('rotor.rotationAxis.y', $event)" class="w-full p-1 border rounded bg-white">
+                <input type="number" [value]="settingsForm().rotor.rotationAxis.z" (input)="updateSettings('rotor.rotationAxis.z', $event)" class="w-full p-1 border rounded bg-white">
+             </div>
+          </div>
+
+          <!-- Bearing 1 Settings -->
+          <div class="p-4 bg-white rounded-lg shadow-inner">
+            <h3 class="font-bold mb-2 text-lg">Bearing 1</h3>
+            <div class="grid grid-cols-4 gap-2 text-sm items-center">
+              <span class="font-semibold col-span-1">Position</span>
+              <input type="number" [value]="settingsForm().bearing1.position.x" (input)="updateSettings('bearing1.position.x', $event)" class="w-full p-1 border rounded bg-white">
+              <input type="number" [value]="settingsForm().bearing1.position.y" (input)="updateSettings('bearing1.position.y', $event)" class="w-full p-1 border rounded bg-white">
+              <input type="number" [value]="settingsForm().bearing1.position.z" (input)="updateSettings('bearing1.position.z', $event)" class="w-full p-1 border rounded bg-white">
+
+              <span class="font-semibold col-span-1">Axis</span>
+              <input type="number" [value]="settingsForm().bearing1.axis.x" (input)="updateSettings('bearing1.axis.x', $event)" class="w-full p-1 border rounded bg-white">
+              <input type="number" [value]="settingsForm().bearing1.axis.y" (input)="updateSettings('bearing1.axis.y', $event)" class="w-full p-1 border rounded bg-white">
+              <input type="number" [value]="settingsForm().bearing1.axis.z" (input)="updateSettings('bearing1.axis.z', $event)" class="w-full p-1 border rounded bg-white">
+
+              <span class="font-semibold col-span-2">Diameter</span>
+              <input type="number" [value]="settingsForm().bearing1.diameter" (input)="updateSettings('bearing1.diameter', $event)" class="w-full p-1 border rounded col-span-2 bg-white">
+
+              <span class="font-semibold col-span-2">Width</span>
+              <input type="number" [value]="settingsForm().bearing1.width" (input)="updateSettings('bearing1.width', $event)" class="w-full p-1 border rounded col-span-2 bg-white">
+            </div>
+          </div>
+
+          <!-- Bearing 2 Settings -->
+          <div class="p-4 bg-white rounded-lg shadow-inner">
+            <h3 class="font-bold mb-2 text-lg">Bearing 2</h3>
+            <div class="grid grid-cols-4 gap-2 text-sm items-center">
+               <span class="font-semibold col-span-1">Position</span>
+              <input type="number" [value]="settingsForm().bearing2.position.x" (input)="updateSettings('bearing2.position.x', $event)" class="w-full p-1 border rounded bg-white">
+              <input type="number" [value]="settingsForm().bearing2.position.y" (input)="updateSettings('bearing2.position.y', $event)" class="w-full p-1 border rounded bg-white">
+              <input type="number" [value]="settingsForm().bearing2.position.z" (input)="updateSettings('bearing2.position.z', $event)" class="w-full p-1 border rounded bg-white">
+
+              <span class="font-semibold col-span-1">Axis</span>
+              <input type="number" [value]="settingsForm().bearing2.axis.x" (input)="updateSettings('bearing2.axis.x', $event)" class="w-full p-1 border rounded bg-white">
+              <input type="number" [value]="settingsForm().bearing2.axis.y" (input)="updateSettings('bearing2.axis.y', $event)" class="w-full p-1 border rounded bg-white">
+              <input type="number" [value]="settingsForm().bearing2.axis.z" (input)="updateSettings('bearing2.axis.z', $event)" class="w-full p-1 border rounded bg-white">
+
+              <span class="font-semibold col-span-2">Diameter</span>
+              <input type="number" [value]="settingsForm().bearing2.diameter" (input)="updateSettings('bearing2.diameter', $event)" class="w-full p-1 border rounded col-span-2 bg-white">
+
+              <span class="font-semibold col-span-2">Width</span>
+              <input type="number" [value]="settingsForm().bearing2.width" (input)="updateSettings('bearing2.width', $event)" class="w-full p-1 border rounded col-span-2 bg-white">
+            </div>
+          </div>
+        </div>
+
+        <!-- Footer -->
+        <div class="p-4 bg-gray-200 border-t border-gray-300 flex justify-end space-x-3">
+            <button (click)="cancelSettings()" class="px-6 py-2 font-bold text-gray-700 bg-white rounded-lg hover:bg-gray-50 border border-gray-300">
+              Cancel
+            </button>
+            <button (click)="applySettings()" class="px-6 py-2 font-bold text-white bg-green-600 rounded-lg hover:bg-green-700">
+              Apply Changes
+            </button>
+        </div>
+
+      </div>
+    </div>
+  }
 </div>
